@@ -1,0 +1,40 @@
+1. Someone reported that the server suddenly became slow and an unfamiliar login was noticed overnight.
+
+2. The administrator said there may have been suspicious activity on the database server but could not identify exactly what happened.
+
+3. A user mentioned that their account appeared to be logged in from somewhere they did not recognize.
+
+4. The help desk received a complaint that several applications were behaving strangely after lunch.
+
+5. An employee said their workstation opened a command window briefly and then disappeared.
+
+6. The server team noticed unusual activity but did not capture the exact time.
+
+7. Someone reported repeated password prompts even though they had already authenticated successfully.
+
+8. The administrator believes an old service account may have been used unexpectedly.
+
+9. A user reported seeing files in a directory that they do not remember creating.
+
+10. The security team was told that a login occurred while the employee was away from the office.
+
+11. The database appeared unusually busy for several minutes and nobody could explain why.
+
+12. An analyst mentioned that an account was behaving differently from its normal pattern.
+
+13. The user said their computer became very slow shortly after opening an email attachment.
+
+14. Someone noticed an unfamiliar program running but no process information was collected.
+
+15. The administrator said there was an unexpected login and then the account was disabled.
+
+16. A workstation owner reported that several browser sessions appeared to have been opened without their involvement.
+
+17. The operations team noticed a sudden increase in network traffic but did not preserve packet captures.
+
+18. An employee reported receiving several unexpected authentication notifications during the night.
+
+19. The server was reportedly restarted unexpectedly, although the exact reason is unknown.
+
+20. Someone said a suspicious command may have been executed, but there is no command history available.
+

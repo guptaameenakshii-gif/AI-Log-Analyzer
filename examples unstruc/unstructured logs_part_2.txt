@@ -1,0 +1,40 @@
+21. The administrator noticed that a privileged account was active outside normal working hours.
+
+22. A user reported that files were renamed unexpectedly, but there is no confirmation that anything was deleted.
+
+23. The monitoring team saw unusual behavior from a workstation and opened an investigation.
+
+24. Someone mentioned that an unfamiliar IP address appeared in an authentication report.
+
+25. A developer said their account was used while they were sleeping, but the login details were not preserved.
+
+26. The server became unavailable briefly and later returned to normal without an identified cause.
+
+27. The user reported that a command prompt appeared after a document was opened.
+
+28. The administrator believes the machine may have been scanned, although no scan results were retained.
+
+29. Several employees complained that authentication was unusually slow this morning.
+
+30. An analyst said the account showed activity that did not match the user's usual behavior.
+
+31. A workstation suddenly started making outbound connections according to the administrator, but no destinations were recorded.
+
+32. Someone reported seeing a strange executable name in Task Manager.
+
+33. The security team received an alert about suspicious behavior, but the original alert details are unavailable.
+
+34. A user said their password was rejected several times before working normally.
+
+35. The administrator found an unexpected scheduled task but has not yet determined who created it.
+
+36. Someone reported that a remote login occurred from an unfamiliar location.
+
+37. A server administrator noticed that an account had accessed a directory it normally does not use.
+
+38. The help desk reported several users receiving unexpected password-reset messages.
+
+39. The database administrator noticed unusual queries but did not save the query history.
+
+40. An employee said their files briefly disappeared from the desktop and later reappeared.
+

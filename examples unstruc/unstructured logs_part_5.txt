@@ -1,0 +1,50 @@
+83. The service may have been related to legitimate software maintenance.
+
+84. An analyst reported suspicious PowerShell activity but did not provide the command line.
+
+85. A user said they clicked a document and then noticed unusual system behavior.
+
+86. The administrator observed network activity that did not match normal application behavior.
+
+87. Someone reported that a server was contacted repeatedly from the same source.
+
+88. The source address was unfamiliar, but its reputation was not checked.
+
+89. An analyst said the address had been reported as malicious by one source.
+
+90. Another analyst reportedly said the same address was associated with legitimate infrastructure.
+
+91. The administrator noticed a new startup entry on a workstation.
+
+92. Someone reported that an application launched automatically after reboot.
+
+93. The user said they did not remember installing the application.
+
+94. The security team could not determine whether the application was legitimate.
+
+95. A database account was reportedly used at an unusual time.
+
+96. The database administrator said the account sometimes performs maintenance overnight.
+
+97. An employee reported that a large number of files were opened unexpectedly.
+
+98. The administrator said there was no evidence of file modification.
+
+99. Someone reported a possible ransomware incident, but no encrypted files were identified.
+
+100. The workstation owner said everything appeared normal after a reboot.
+
+101. The security team received an alert about possible credential theft.
+
+102. The analyst noted that the alert was generated automatically and had not yet been verified.
+
+103. A user reported several unexpected authentication requests.
+
+104. The requests stopped after the password was changed.
+
+105. The administrator said there was no confirmed unauthorized access.
+
+106. Someone reported that an account was used from two locations around the same time.
+
+107. The analyst said the locations might be explained by VPN usage.
+

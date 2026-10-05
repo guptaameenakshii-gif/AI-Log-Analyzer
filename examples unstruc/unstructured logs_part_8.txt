@@ -1,0 +1,62 @@
+166. The account normally had access to the directory.
+
+167. The unusual part was the frequency of access.
+
+168. The administrator said a backup process runs periodically.
+
+169. An analyst said the behavior could therefore be benign.
+
+170. A user reported that a command appeared to remove files.
+
+171. The administrator said the command was blocked by policy.
+
+172. No evidence showed that the files were actually deleted.
+
+173. Someone nevertheless described the incident as destructive.
+
+174. The security team marked the event for review.
+
+175. A suspicious command was reportedly seen in a screenshot.
+
+176. The screenshot did not include the full command.
+
+177. The analyst said the missing portion might contain important context.
+
+178. No attempt was made to reconstruct the missing command.
+
+179. A user reported a strange encoded-looking string in a log.
+
+180. The string was incomplete and could not be reliably interpreted.
+
+181. Someone described it as possible encoded PowerShell.
+
+182. The analyst noted that the evidence was insufficient to confirm this.
+
+183. A server reportedly received several unexpected requests.
+
+184. The requests may have been normal application traffic.
+
+185. No request payloads were available.
+
+186. The administrator said the application had recently been deployed.
+
+187. An analyst reported a possible web attack.
+
+188. The available evidence only showed unusual request volume.
+
+189. A user said their account was locked after several failed login attempts.
+
+190. The administrator said the failures may have come from an old mobile device.
+
+191. The source of the attempts was not confirmed.
+
+192. Someone reported an unfamiliar device in the user's account activity.
+
+193. The device name looked similar to a known corporate laptop.
+
+194. It was unclear whether the device was actually unauthorized.
+
+195. The security team noted the ambiguity.
+
+196. An analyst said the incident might involve credential reuse.
+
