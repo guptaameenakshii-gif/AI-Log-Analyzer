@@ -1,6 +1,6 @@
 # AI Security Warning Log Analyzer
 
-A Gradio-based security log analysis app for reviewing auth, firewall, API, database, and mixed system logs. The tool accepts either a log file upload or pasted log text, sends the data to a Gemini-backed LLM, and renders a structured security assessment with risk scoring, findings, attack-pattern context, timeline events, investigation priorities, and raw JSON output.
+A Gradio-based security log analysis app for reviewing auth, firewall, API, database, and mixed system logs. The tool accepts either a log file upload or pasted log text, sends the data to a Groq-backed LLM, and renders a structured security assessment with risk scoring, findings, attack-pattern context, timeline events, investigation priorities, and raw JSON output.
 
 This project evolved from a simple parser prototype into an AI-assisted SOC-style analyzer that validates model output against a Pydantic schema and exposes the results in a dashboard UI.
 
@@ -9,7 +9,8 @@ This project evolved from a simple parser prototype into an AI-assisted SOC-styl
 - Accepts uploaded files or manual log input
 - Supports .log, .txt, and .csv uploads
 - Parses timestamped log lines and preserves non-standard lines as raw evidence
-- Sends the log data to Gemini for security interpretation
+- Extracts and orders timeline entries with deterministic Python logic
+- Sends the log data to Groq for AI-driven security interpretation
 - Validates the AI response against a strict JSON schema
 - Produces:
   - executive summary
@@ -27,11 +28,12 @@ The actual application flow is:
 
 1. Log intake from file or manual text
 2. Input preparation and validation
-3. Gemini LLM request with a security-analysis system prompt
+3. Groq LLM request with a security-analysis system prompt
 4. Schema validation using Pydantic
-5. Gradio dashboard rendering of the structured result
+5. Deterministic Python timeline extraction and chronological ordering
+6. Gradio dashboard rendering of the structured result
 
-The application is intentionally AI-first and evidence-driven. Security interpretation is performed by the model, while Python enforces request/response structure and handles transient provider failures.
+The application is intentionally AI-first and evidence-driven. Security interpretation is performed by the model, while Python enforces request/response structure, preserves original evidence, and applies deterministic timestamp ordering logic. Timeline counts are not fixed; they depend on the supplied input and the timestamps present in the log data.
 
 ## Tech stack
 
@@ -39,7 +41,7 @@ The application is intentionally AI-first and evidence-driven. Security interpre
 - Gradio
 - Pydantic
 - OpenAI Python client
-- Gemini OpenAI-compatible endpoint
+- Groq OpenAI-compatible endpoint
 - Langfuse
 - dotenv
 - pytest
@@ -53,13 +55,14 @@ app/
   llm.py
   main.py
   schemas.py
-  test_llm.py
+  timeline.py
 examples/
   auth_300.log
   mixed_300.log
   security_300.log
 tests/
   test_analyzer.py
+  test_timeline.py
 tools/
   generate_logs.py
 README.md
@@ -90,19 +93,17 @@ http://127.0.0.1:7860
 
 ## Environment configuration
 
-Create a .env file in the project root with your Gemini settings.
+Create a .env file in the project root with your Groq settings.
 
 ```env
-LLM_PROVIDER=gemini
-LLM_MODEL=gemini-2.5-flash
-GEMINI_API_KEY=your_api_key_here
+GROQ_API_KEY=your_api_key_here
+GROQ_MODEL=openai/gpt-oss-120b
 ```
 
 Notes:
 
-- LLM_PROVIDER is defaulted to gemini if omitted.
-- LLM_MODEL must be set for the request to run.
-- GEMINI_API_KEY is required for AI analysis.
+- The current default model is `openai/gpt-oss-120b`.
+- `GROQ_API_KEY` is required for AI analysis.
 - If the required values are missing, the app reports an AI analysis unavailable error instead of crashing.
 
 ## Example log formats
@@ -174,7 +175,7 @@ Run the test suite with:
 pytest -q
 ```
 
-The tests cover parsing, grouping, event detection, severity behavior, stats, and summary generation.
+The tests cover parsing, grouping, event detection, severity behavior, timeline ordering, deterministic timestamp extraction, and summary generation.
 
 ## Important limitations
 
@@ -186,4 +187,10 @@ The tests cover parsing, grouping, event detection, severity behavior, stats, an
 
 ## Summary
 
-The current version is an evidence-oriented, Gemini-backed security log analyzer built around a Gradio dashboard and strongly validated JSON output. It is intended for investigation support, quick triage, and structured review of suspicious log patterns.
+The current version is an evidence-oriented, Groq-backed security log analyzer built around a Gradio dashboard and strongly validated JSON output. It is intended for investigation support, quick triage, and structured review of suspicious log patterns.
+
+The timeline behavior is intentionally split across responsibilities:
+
+- Python handles deterministic timestamp extraction and chronological ordering.
+- The AI remains responsible for the security interpretation and context.
+- Timeline counts vary with the input data and are not fixed values.
