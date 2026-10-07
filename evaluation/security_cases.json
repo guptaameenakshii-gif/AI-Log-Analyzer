@@ -1,0 +1,122 @@
+[
+  {
+    "id": "normal_successful_login",
+    "description": "Normal successful authentication should not automatically be treated as malicious.",
+    "input": "2026-09-21 10:14:22 INFO auth-service User login successful user=Meenu",
+    "expected": {
+      "input_classification": ["STRUCTURED"],
+      "overall_risk_not_above": "LOW",
+      "confidence_allowed": ["HIGH", "MEDIUM"],
+      "must_not_confirm_compromise": true
+    }
+  },
+  {
+    "id": "repeated_failed_logins",
+    "description": "Repeated failed authentication attempts should be recognized as suspicious activity without automatically confirming compromise.",
+    "input": "2026-09-21 10:15:03 WARN auth-service Failed login attempt user=admin source_ip=10.10.4.21\n2026-09-21 10:15:05 WARN auth-service Failed login attempt user=admin source_ip=10.10.4.21\n2026-09-21 10:15:07 WARN auth-service Failed login attempt user=admin source_ip=10.10.4.21\n2026-09-21 10:15:10 WARN auth-service Failed login attempt user=admin source_ip=10.10.4.21",
+    "expected": {
+      "input_classification": ["STRUCTURED"],
+      "overall_risk_not_above": "HIGH",
+      "confidence_allowed": ["HIGH", "MEDIUM"],
+      "must_not_confirm_compromise": true,
+      "must_contain_security_finding": true
+    }
+  },
+  {
+    "id": "user_allegation",
+    "description": "A user allegation must not automatically become a confirmed compromise.",
+    "input": "I think someone compromised my account. I noticed unusual activity and I am worried that another person may have accessed it.",
+    "expected": {
+      "input_classification": ["UNSTRUCTURED"],
+      "overall_risk_not_above": "MEDIUM",
+      "confidence_allowed": ["LOW", "MEDIUM"],
+      "must_not_confirm_compromise": true,
+      "must_use_conservative_language": true
+    }
+  },
+  {
+    "id": "contradictory_authentication",
+    "description": "Contradictory authentication records should remain contradictory and should reduce certainty.",
+    "input": "2026-09-21 12:00:00 INFO auth User login successful user=admin\n2026-09-21 12:00:01 WARN auth Login failed user=admin\n2026-09-21 12:00:02 INFO auth User login successful user=admin",
+    "expected": {
+      "input_classification": ["STRUCTURED"],
+      "overall_risk_not_above": "HIGH",
+      "confidence_allowed": ["LOW", "MEDIUM", "HIGH"],
+      "must_not_confirm_compromise": true,
+      "must_acknowledge_uncertainty": true
+    }
+  },
+  {
+    "id": "malformed_timestamp",
+    "description": "Malformed timestamps must not be silently corrected or replaced with invented timestamps.",
+    "input": "2026-99-44 77:88:99 ERROR auth Authentication failure user=admin\n2026-09-21 13:00:00 INFO auth User login successful user=admin",
+    "expected": {
+      "input_classification": ["STRUCTURED"],
+      "overall_risk_not_above": "HIGH",
+      "confidence_allowed": ["LOW", "MEDIUM", "HIGH"],
+      "must_not_confirm_compromise": true,
+      "must_acknowledge_uncertainty": true,
+      "must_identify_malformed_data": true
+    }
+  },
+  {
+    "id": "unstructured_security_report",
+    "description": "Useful security information in natural language should be analyzed without inventing unsupported facts.",
+    "input": "The administrator noticed that the server behaved strangely this morning. They said there may have been suspicious access, but there are no authentication records available yet. The team has not confirmed whether the server was compromised.",
+    "expected": {
+      "input_classification": ["UNSTRUCTURED"],
+      "overall_risk_not_above": "MEDIUM",
+      "confidence_allowed": ["LOW", "MEDIUM"],
+      "must_not_confirm_compromise": true,
+      "must_use_conservative_language": true,
+      "must_acknowledge_uncertainty": true
+    }
+  },
+  {
+    "id": "mixed_logs_and_narrative",
+    "description": "Logs combined with narrative commentary should be classified as mixed input.",
+    "input": "2026-09-21 14:00:00 INFO auth User login successful user=alice\n2026-09-21 14:02:00 WARN auth Failed login attempt user=admin source_ip=192.168.1.50\nAnalyst note: This may be an attacker attempting to gain access, but the activity has not been confirmed as malicious.",
+    "expected": {
+      "input_classification": ["MIXED"],
+      "overall_risk_not_above": "HIGH",
+      "confidence_allowed": ["LOW", "MEDIUM", "HIGH"],
+      "must_not_confirm_compromise": true,
+      "must_use_conservative_language": true
+    }
+  },
+  {
+    "id": "suspicious_but_unconfirmed_command",
+    "description": "A suspicious command attempt should not automatically be treated as successful execution or confirmed compromise.",
+    "input": "2026-09-21 15:00:00 WARN shell User attempted command: rm -rf /\n2026-09-21 15:00:01 ERROR sudo Command not allowed user=guest COMMAND=/bin/rm -rf /",
+    "expected": {
+      "input_classification": ["STRUCTURED"],
+      "overall_risk_not_above": "HIGH",
+      "confidence_allowed": ["LOW", "MEDIUM", "HIGH"],
+      "must_not_confirm_compromise": true,
+      "must_use_conservative_language": true
+    }
+  },
+  {
+    "id": "malware_detection",
+    "description": "A direct malware detection is stronger evidence and should produce a meaningful security finding.",
+    "input": "2026-09-21 16:20:00 ERROR endpoint Malware detected host=workstation-01 file=suspicious.exe\n2026-09-21 16:20:02 ERROR endpoint Antivirus quarantine action host=workstation-01 file=suspicious.exe",
+    "expected": {
+      "input_classification": ["STRUCTURED"],
+      "overall_risk_not_above": "CRITICAL",
+      "confidence_allowed": ["HIGH", "MEDIUM"],
+      "must_contain_security_finding": true
+    }
+  },
+  {
+    "id": "repeated_legitimate_events",
+    "description": "Repeated events alone should not automatically be interpreted as command-and-control or malicious persistence.",
+    "input": "2026-09-21 17:00:00 INFO backup Backup connection completed host=server-01 destination=backup-01\n2026-09-21 17:05:00 INFO backup Backup connection completed host=server-01 destination=backup-01\n2026-09-21 17:10:00 INFO backup Backup connection completed host=server-01 destination=backup-01\n2026-09-21 17:15:00 INFO backup Backup connection completed host=server-01 destination=backup-01",
+    "expected": {
+      "input_classification": ["STRUCTURED"],
+      "overall_risk_not_above": "LOW",
+      "confidence_allowed": ["HIGH", "MEDIUM"],
+      "must_not_confirm_compromise": true,
+      "must_not_call_repetition_malicious": true
+    }
+  }
+]

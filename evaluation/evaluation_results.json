@@ -1,0 +1,139 @@
+{
+  "total_cases": 10,
+  "passed": 10,
+  "failed": 0,
+  "errors": 0,
+  "pass_rate_percent": 100.0,
+  "results": [
+    {
+      "id": "normal_successful_login",
+      "status": "PASS",
+      "violations": [],
+      "actual": {
+        "input_classification": "STRUCTURED",
+        "overall_risk": "INFO",
+        "confidence": "HIGH",
+        "finding_count": 1,
+        "timeline_count": 1,
+        "priority_count": 1
+      }
+    },
+    {
+      "id": "repeated_failed_logins",
+      "status": "PASS",
+      "violations": [],
+      "actual": {
+        "input_classification": "STRUCTURED",
+        "overall_risk": "MEDIUM",
+        "confidence": "HIGH",
+        "finding_count": 1,
+        "timeline_count": 4,
+        "priority_count": 3
+      }
+    },
+    {
+      "id": "user_allegation",
+      "status": "PASS",
+      "violations": [],
+      "actual": {
+        "input_classification": "UNSTRUCTURED",
+        "overall_risk": "LOW",
+        "confidence": "LOW",
+        "finding_count": 1,
+        "timeline_count": 1,
+        "priority_count": 2
+      }
+    },
+    {
+      "id": "contradictory_authentication",
+      "status": "PASS",
+      "violations": [],
+      "actual": {
+        "input_classification": "STRUCTURED",
+        "overall_risk": "MEDIUM",
+        "confidence": "MEDIUM",
+        "finding_count": 1,
+        "timeline_count": 3,
+        "priority_count": 3
+      }
+    },
+    {
+      "id": "malformed_timestamp",
+      "status": "PASS",
+      "violations": [],
+      "actual": {
+        "input_classification": "STRUCTURED",
+        "overall_risk": "LOW",
+        "confidence": "MEDIUM",
+        "finding_count": 1,
+        "timeline_count": 2,
+        "priority_count": 2
+      }
+    },
+    {
+      "id": "unstructured_security_report",
+      "status": "PASS",
+      "violations": [],
+      "actual": {
+        "input_classification": "UNSTRUCTURED",
+        "overall_risk": "LOW",
+        "confidence": "LOW",
+        "finding_count": 1,
+        "timeline_count": 1,
+        "priority_count": 1
+      }
+    },
+    {
+      "id": "mixed_logs_and_narrative",
+      "status": "PASS",
+      "violations": [],
+      "actual": {
+        "input_classification": "MIXED",
+        "overall_risk": "MEDIUM",
+        "confidence": "MEDIUM",
+        "finding_count": 2,
+        "timeline_count": 3,
+        "priority_count": 3
+      }
+    },
+    {
+      "id": "suspicious_but_unconfirmed_command",
+      "status": "PASS",
+      "violations": [],
+      "actual": {
+        "input_classification": "STRUCTURED",
+        "overall_risk": "MEDIUM",
+        "confidence": "HIGH",
+        "finding_count": 1,
+        "timeline_count": 2,
+        "priority_count": 3
+      }
+    },
+    {
+      "id": "malware_detection",
+      "status": "PASS",
+      "violations": [],
+      "actual": {
+        "input_classification": "STRUCTURED",
+        "overall_risk": "HIGH",
+        "confidence": "HIGH",
+        "finding_count": 1,
+        "timeline_count": 2,
+        "priority_count": 2
+      }
+    },
+    {
+      "id": "repeated_legitimate_events",
+      "status": "PASS",
+      "violations": [],
+      "actual": {
+        "input_classification": "STRUCTURED",
+        "overall_risk": "INFO",
+        "confidence": "HIGH",
+        "finding_count": 1,
+        "timeline_count": 4,
+        "priority_count": 2
+      }
+    }
+  ]
+}

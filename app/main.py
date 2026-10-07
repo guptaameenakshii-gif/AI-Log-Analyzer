@@ -1181,14 +1181,20 @@ def build_investigation(findings) -> str:
 # INVESTIGATION PRIORITIES
 # ============================================================
 
-def build_investigation_priorities(priorities) -> str:
+def build_investigation_priorities(priorities, findings=None) -> str:
 
     priorities = normalize_list(
         priorities
     )
 
     if not priorities:
-        return """
+        empty_message = (
+            "No investigation priorities are applicable because "
+            "no findings were identified."
+            if findings is not None and not findings
+            else "No investigation priorities were returned."
+        )
+        return f"""
         <div class="panel">
 
             <div class="panel-header">
@@ -1211,7 +1217,7 @@ def build_investigation_priorities(priorities) -> str:
             <div class="empty-state compact">
 
                 <div class="empty-text">
-                    No investigation priorities were returned.
+                    {safe(empty_message)}
                 </div>
 
             </div>
@@ -2402,7 +2408,10 @@ def analyze_logs(
             build_timeline(timeline),
             build_findings_table(findings),
             build_investigation(findings),
-            build_investigation_priorities(priorities),
+            build_investigation_priorities(
+                priorities,
+                findings=findings,
+            ),
             json.dumps(
                 result,
                 indent=2,

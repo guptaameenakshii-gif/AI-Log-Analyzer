@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 Severity = Literal[
@@ -34,6 +34,22 @@ InputClassification = Literal[
 
 
 class TimelineEvent(BaseModel):
+    @field_validator("severity", mode="before")
+    @classmethod
+    def normalize_source_severity(cls, value):
+        if not isinstance(value, str):
+            return value
+
+        aliases = {
+            "WARN": "MEDIUM",
+            "WARNING": "MEDIUM",
+            "ERROR": "HIGH",
+            "ERR": "HIGH",
+            "DEBUG": "INFO",
+            "NOTICE": "INFO",
+        }
+        return aliases.get(value.strip().upper(), value)
+
     timestamp: str = Field(
         description=(
             "Timestamp exactly as observed in the input. "
@@ -42,15 +58,32 @@ class TimelineEvent(BaseModel):
     )
 
     event: str = Field(
-        description="Short description of the observed event."
+        description=(
+            "Short factual description of the observed event. "
+            "Do not state that an attack or incident is confirmed "
+            "unless the evidence explicitly supports that conclusion."
+        )
     )
 
     severity: Severity = Field(
-        description="Severity supported by the available evidence."
+        description=(
+            "Severity of the observed event based only on available "
+            "evidence. Severity does not represent confidence."
+        )
     )
 
     evidence: str = Field(
-        description="Concrete evidence from the supplied input."
+        description=(
+            "Concrete evidence from the supplied input, including "
+            "the original log line where possible."
+        )
+    )
+
+    line_number: int | None = Field(
+        default=None,
+        description=(
+            "Original 1-based log line number when available."
+        )
     )
 
 

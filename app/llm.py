@@ -1,6 +1,6 @@
 import os
 import time
-
+import json
 from dotenv import load_dotenv
 from langfuse import get_client, observe
 from openai import OpenAI
@@ -84,9 +84,21 @@ IMPORTANT:
 Do not classify an input as STRUCTURED merely because some lines
 look like logs.
 
-If recognizable logs are mixed with substantial narrative,
-commentary, malformed records, or contradictory assertions,
-classify the input as MIXED.
+IMPORTANT:
+
+Malformed fields inside otherwise recognizable machine-generated
+log records do NOT by themselves make the input MIXED.
+
+Contradictory events inside otherwise recognizable machine-generated
+logs do NOT by themselves make the input MIXED.
+
+Classify the input as STRUCTURED when the input is primarily
+machine-generated log records, even if some individual fields are
+malformed, missing, contradictory, or unusable.
+
+Classify the input as MIXED when recognizable logs are combined with
+substantial narrative text, analyst commentary, user statements,
+incident descriptions, or other non-log material.
 
 ============================================================
 2. EVIDENCE HIERARCHY
@@ -145,6 +157,41 @@ If the input is UNSTRUCTURED:
 - Use lower confidence when important context is missing.
 - If no meaningful security evidence exists, return no findings.
 - Explain what additional evidence would be needed.
+
+IMPORTANT UNSTRUCTURED SAFETY RULE:
+
+For UNSTRUCTURED input, user or analyst statements about compromise,
+breach, malware, intrusion, takeover, or unauthorized access are CLAIMS,
+not confirmed incidents.
+
+If the input only reports or alleges a compromise without direct
+supporting telemetry:
+
+- Do not state that compromise occurred.
+- Do not state that the account or system was compromised.
+- Do not state that an attacker successfully accessed the system.
+- Do not use "confirmed compromise".
+- Do not use "compromised" as an established fact.
+- Do not recommend incident-response actions that assume compromise
+  has already been established.
+
+Instead, describe the statement as a reported allegation or claim and
+recommend validating it against original logs, authentication records,
+endpoint telemetry, network telemetry, or other evidence actually
+available in the supplied input.
+
+A claim such as:
+
+"User reports that their account was compromised"
+
+must remain a claim.
+
+An appropriate finding title would be similar to:
+
+"Reported account compromise allegation"
+
+and the description must make clear that the supplied input does not
+verify the compromise.
 
 ============================================================
 4. MIXED INPUT
@@ -223,6 +270,24 @@ For malformed records:
 - use "Unknown" for unusable timestamps,
 - never invent missing fields.
 
+A malformed field does not make an otherwise structured log input
+UNSTRUCTURED or MIXED.
+
+For example:
+
+2026-99-44 77:88:99 ERROR auth Authentication failure user=admin
+2026-09-21 13:00:00 INFO auth User login successful user=admin
+
+is STRUCTURED because both records follow a recognizable log format.
+
+The first timestamp must remain acknowledged as malformed.
+
+Do not silently convert it to another date or infer when the event
+actually occurred.
+
+The assessment must explicitly acknowledge the uncertainty caused by
+the malformed timestamp.
+
 ============================================================
 7. TIMESTAMPS
 ============================================================
@@ -295,6 +360,10 @@ However:
 
 A suspicious pattern is NOT automatically a confirmed attack.
 
+An unusual login, repeated login failures, or an MFA failure is an
+authentication anomaly that may warrant investigation. It is not, by
+itself, evidence that an attack succeeded or that an incident is confirmed.
+
 Use wording such as:
 
 - possible
@@ -307,7 +376,21 @@ Use wording such as:
 when evidence is incomplete.
 
 ============================================================
-10. FALSE POSITIVE PROTECTION
+10. IP ADDRESS CLASSIFICATION
+============================================================
+
+Treat these IPv4 ranges as private/internal, never as external:
+
+- 10.0.0.0/8
+- 172.16.0.0/12
+- 192.168.0.0/16
+
+Do not call an address external merely because it appears in a log.
+If the address scope cannot be established from the supplied evidence,
+describe it as an IP address with unknown scope.
+
+============================================================
+11. FALSE POSITIVE PROTECTION
 ============================================================
 
 Do not classify ordinary administrative activity as malicious solely
@@ -978,17 +1061,26 @@ def _request_ai_analysis(
 # Main AI analysis function
 # ---------------------------------------------------------------------------
 
-@observe(name="ai-security-log-analysis")
+@observe(
+    name="ai-security-log-analysis",
+    as_type="generation",
+    capture_input=False,
+    capture_output=False,
+)
 def analyze_logs_with_ai(
     log_text: str,
 ) -> SecurityAnalysis:
     """
     Analyze security input using Groq.
 
+    Langfuse records this as a child observation of the
+    security-log-analysis root trace.
+
     The model classifies the input, identifies data-quality problems,
     analyzes supported security evidence, and returns a response
     validated against the SecurityAnalysis Pydantic schema.
     """
+
     if not log_text or not log_text.strip():
         raise ValueError(
             "No log data was provided."
@@ -1021,6 +1113,44 @@ def analyze_logs_with_ai(
             f"AI security analysis request failed: {exc}"
         ) from exc
 
+    usage = getattr(response, "usage", None)
+    if usage is not None:
+        usage_details = {
+            name: value
+            for name, value in (
+                ("prompt_tokens", getattr(usage, "prompt_tokens", None)),
+                ("completion_tokens", getattr(usage, "completion_tokens", None)),
+                ("total_tokens", getattr(usage, "total_tokens", None)),
+            )
+            if isinstance(value, int)
+        }
+
+        try:
+            from langfuse import get_client
+
+            generation_details = {
+                "model": GROQ_MODEL,
+                "usage_details": usage_details,
+            }
+
+            cost_details = getattr(response, "cost_details", None)
+            if cost_details is None:
+                cost_details = getattr(usage, "cost_details", None)
+
+            if isinstance(cost_details, dict):
+                normalized_costs = {
+                    key: float(value)
+                    for key, value in cost_details.items()
+                    if key in {"input", "output", "total"}
+                    and isinstance(value, (int, float))
+                }
+                if normalized_costs:
+                    generation_details["cost_details"] = normalized_costs
+
+            get_client().update_current_generation(**generation_details)
+        except Exception:
+            pass
+
     if not response.choices:
         raise RuntimeError(
             "The AI returned no choices."
@@ -1046,19 +1176,54 @@ def analyze_logs_with_ai(
         )
 
     try:
-        analysis = SecurityAnalysis.model_validate_json(
-            content
-        )
+        raw_analysis = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            "The AI returned invalid JSON for the security analysis."
+        ) from exc
 
+    try:
+        analysis = SecurityAnalysis.model_validate(
+            raw_analysis
+        )
     except Exception as exc:
         raise RuntimeError(
             "The AI returned JSON that does not match the "
             f"SecurityAnalysis schema: {exc}"
         ) from exc
 
-    # Flush Langfuse telemetry after the analysis is complete.
+    # ---------------------------------------------------------------
+    # Langfuse output
+    # ---------------------------------------------------------------
+
     try:
-        get_client().flush()
+        from langfuse import get_client
+
+        get_client().update_current_generation(
+            output={"status": "validated"},
+            input={
+                "log_characters": len(log_text),
+                "log_lines": len(log_text.splitlines()),
+            },
+            metadata={
+                "provider": "groq",
+                "input_classification": (
+                    analysis.input_classification
+                ),
+                "overall_risk": (
+                    analysis.overall_risk
+                ),
+                "confidence": (
+                    analysis.confidence
+                ),
+                "finding_count": len(
+                    analysis.findings
+                ),
+                "timeline_count": len(
+                    analysis.timeline
+                ),
+            },
+        )
     except Exception:
         pass
 

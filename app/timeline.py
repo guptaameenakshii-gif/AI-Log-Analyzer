@@ -234,6 +234,50 @@ def extract_timestamp(line: str):
 
     return None
 
+def find_malformed_timestamps(log_text: str):
+    """
+    Detect timestamp-looking values that cannot be parsed reliably.
+
+    This is deliberately conservative. It only reports values that
+    strongly resemble a datetime at the beginning of a log record
+    but fail all supported timestamp parsers.
+
+    Returns a list of original malformed timestamp strings.
+    """
+
+    malformed = []
+
+    timestamp_prefix = re.compile(
+        r"^\s*"
+        r"(\d{4}[-/]\d{1,2}[-/]\d{1,2}"
+        r"[T ]"
+        r"\d{1,2}:\d{2}"
+        r"(?::\d{2})?"
+        r"(?:[.,]\d+)?"
+        r"(?:Z|[+-]\d{2}:?\d{2})?)"
+        r"\b"
+    )
+
+    for line in log_text.splitlines():
+        line = line.strip()
+
+        if not line:
+            continue
+
+        match = timestamp_prefix.search(line)
+
+        if not match:
+            continue
+
+        candidate = match.group(1)
+
+        # If extract_timestamp can parse it, it is valid.
+        parsed = extract_timestamp(line)
+
+        if parsed is None:
+            malformed.append(candidate)
+
+    return malformed
 
 def extract_timeline_candidates(log_text: str):
     """
