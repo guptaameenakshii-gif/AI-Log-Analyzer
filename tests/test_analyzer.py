@@ -454,6 +454,55 @@ def test_missing_ai_fields_are_reported(monkeypatch):
 
 
 @pytest.mark.parametrize(
+    ("raw_text", "error_match", "validation_status"),
+    [
+        ("not valid JSON", "invalid JSON", "invalid_json"),
+        ("{}", "does not match the SecurityAnalysis schema", "schema_invalid"),
+    ],
+)
+def test_invalid_ai_response_is_recorded_as_error_generation(
+    monkeypatch,
+    raw_text,
+    error_match,
+    validation_status,
+):
+    calls = []
+
+    class FakeGeneration:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def update(self, **kwargs):
+            calls.append(kwargs)
+
+    class FakeLangfuse:
+        def start_as_current_observation(self, **kwargs):
+            return FakeGeneration()
+
+    llm = _patch_llm_response(monkeypatch, raw_text)
+    monkeypatch.setattr(
+        llm,
+        "get_langfuse_client",
+        lambda: FakeLangfuse(),
+    )
+
+    with pytest.raises(RuntimeError, match=error_match):
+        llm.analyze_logs_with_ai("sufficiently long log input")
+
+    error_update = next(
+        update
+        for update in calls
+        if update.get("level") == "ERROR"
+    )
+    assert error_update["output"] == {"raw_model_text": raw_text}
+    assert error_update["metadata"]["validation_status"] == validation_status
+    assert error_update["status_message"]
+
+
+@pytest.mark.parametrize(
     ("field", "value"),
     [
         ("severity", "NOT_A_SEVERITY"),
@@ -523,18 +572,28 @@ def test_timeline_schema_rejects_unknown_severity():
 def test_langfuse_records_token_usage_without_raw_logs(monkeypatch):
     calls = []
 
-    class FakeLangfuse:
-        def update_current_observation(self, **kwargs):
-            calls.append(("observation", kwargs))
+    class FakeObservation:
+        def __enter__(self):
+            return self
 
-        def update_current_generation(self, **kwargs):
-            calls.append(("generation", kwargs))
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def update(self, **kwargs):
+            calls.append(("update", kwargs))
+
+    class FakeLangfuse:
+        def start_as_current_observation(self, **kwargs):
+            calls.append(("start", kwargs))
+            return FakeObservation()
 
     fake_client = FakeLangfuse()
     monkeypatch.setattr(
-        "langfuse.get_client",
+        "app.llm.get_langfuse_client",
         lambda: fake_client,
     )
+    monkeypatch.setenv("LANGFUSE_REDACT_IPS", "true")
+    monkeypatch.setenv("LANGFUSE_REDACT_USERNAMES", "true")
     usage = SimpleNamespace(
         prompt_tokens=120,
         completion_tokens=30,
@@ -551,7 +610,7 @@ def test_langfuse_records_token_usage_without_raw_logs(monkeypatch):
     generation_call = next(
         kwargs
         for kind, kwargs in calls
-        if kind == "generation"
+        if kind == "update" and "usage_details" in kwargs
     )
     assert generation_call["model"] == "test-model"
     assert generation_call["usage_details"] == {
@@ -559,7 +618,41 @@ def test_langfuse_records_token_usage_without_raw_logs(monkeypatch):
         "completion_tokens": 30,
         "total_tokens": 150,
     }
-    assert "do-not-trace" not in repr(calls)
+    input_call = next(
+        kwargs
+        for kind, kwargs in calls
+        if kind == "update" and "input" in kwargs
+    )
+    assert "do-not-trace" not in repr(input_call)
+    assert "alice" not in repr(input_call)
+
+
+def test_langfuse_mask_always_redacts_secrets_and_configures_identity_masking(
+    monkeypatch,
+):
+    from app.observability import mask_sensitive_data
+
+    monkeypatch.setenv("LANGFUSE_REDACT_IPS", "true")
+    monkeypatch.setenv("LANGFUSE_REDACT_USERNAMES", "true")
+    data = {
+        "log": "user=alice source_ip=192.168.1.12 password=hunter2 token=abc123",
+        "api_key": "gsk_abcdefghijklmnopqrstuvwxyz",
+    }
+
+    masked = mask_sensitive_data(data=data)
+
+    assert "alice" not in masked["log"]
+    assert "192.168.1.12" not in masked["log"]
+    assert "hunter2" not in masked["log"]
+    assert "abc123" not in masked["log"]
+    assert masked["api_key"] == "[REDACTED]"
+
+    monkeypatch.setenv("LANGFUSE_REDACT_IPS", "false")
+    monkeypatch.setenv("LANGFUSE_REDACT_USERNAMES", "false")
+    configurable = mask_sensitive_data(data=data)
+    assert "alice" in configurable["log"]
+    assert "192.168.1.12" in configurable["log"]
+    assert "hunter2" not in configurable["log"]
 
 
 # ---------------------------------------------------------------------------

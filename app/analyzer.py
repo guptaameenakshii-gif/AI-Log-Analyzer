@@ -1,10 +1,13 @@
-﻿import re
+﻿import os
+import re
 from datetime import datetime
 import ipaddress
+from copy import deepcopy
 
-from langfuse import get_client
+from langfuse import propagate_attributes
 
 from .llm import analyze_logs_with_ai
+from .observability import get_langfuse_client, mask_sensitive_data
 from .schemas import TimelineEvent
 from .timeline import (
     classify_timeline_severity,
@@ -18,19 +21,171 @@ MAX_LOG_CHARACTERS = 240_000
 MIN_MEANINGFUL_CHARACTERS = 10
 
 
-def _trace_step(name, operation, *args, **kwargs):
-    """Run one operation as a child span when a request trace is active."""
+def _trace_step(
+    name,
+    operation,
+    *args,
+    trace_input=None,
+    trace_output=None,
+    **kwargs,
+):
+    """Run one operation as a child span with optional compact payloads."""
 
     try:
-        observation = get_client().start_as_current_observation(
+        observation = get_langfuse_client().start_as_current_observation(
             name=name,
             as_type="span",
         )
     except Exception:
         return operation(*args, **kwargs)
 
-    with observation:
-        return operation(*args, **kwargs)
+    with observation as span:
+        if trace_input is not None:
+            try:
+                span.update(input=trace_input)
+            except Exception:
+                pass
+
+        try:
+            result = operation(*args, **kwargs)
+        except Exception as exc:
+            try:
+                span.update(
+                    level="ERROR",
+                    status_message=str(
+                        mask_sensitive_data(data=str(exc))
+                    )[:500],
+                )
+            except Exception:
+                pass
+            raise
+
+        if trace_output is not None:
+            try:
+                span.update(output=trace_output(result))
+            except Exception:
+                pass
+
+    return result
+
+
+TRACE_ITEM_LIMIT = 100
+
+
+def _analysis_trace_snapshot(analysis):
+    """Return the correctness-relevant analysis fields for trace review."""
+
+    analysis = _analysis_to_dict(analysis)
+    findings = analysis.get("findings", []) or []
+    timeline = analysis.get("timeline", []) or []
+
+    return {
+        "executive_summary": analysis.get("executive_summary"),
+        "overall_risk": analysis.get("overall_risk"),
+        "confidence": analysis.get("confidence"),
+        "findings": [
+            {
+                key: finding.get(key)
+                for key in (
+                    "title",
+                    "severity",
+                    "confidence",
+                    "description",
+                    "evidence",
+                    "attack_pattern",
+                )
+                if key in finding
+            }
+            for finding in findings[:TRACE_ITEM_LIMIT]
+            if isinstance(finding, dict)
+        ],
+        "timeline": [
+            event
+            if isinstance(event, dict)
+            else _analysis_to_dict(event)
+            for event in timeline[:TRACE_ITEM_LIMIT]
+        ],
+        "data_quality_notes": analysis.get("data_quality_notes", []),
+        "investigation_priority": analysis.get("investigation_priority", []),
+        "finding_count": len(findings),
+        "timeline_count": len(timeline),
+    }
+
+
+def _analysis_trace_changes(before, after):
+    """Describe fields changed by deterministic evidence-safety checks."""
+
+    before = _analysis_to_dict(before)
+    after = _analysis_to_dict(after)
+    changes = {}
+
+    for key in ("executive_summary", "overall_risk", "confidence"):
+        if before.get(key) != after.get(key):
+            changes[key] = {
+                "before": before.get(key),
+                "after": after.get(key),
+            }
+
+    before_findings = before.get("findings", []) or []
+    after_findings = after.get("findings", []) or []
+    finding_changes = []
+    for index, (old, new) in enumerate(zip(before_findings, after_findings)):
+        if not isinstance(old, dict) or not isinstance(new, dict):
+            continue
+        changed_fields = {
+            field: {"before": old.get(field), "after": new.get(field)}
+            for field in ("title", "description", "evidence", "severity", "confidence")
+            if old.get(field) != new.get(field)
+        }
+        if changed_fields:
+            finding_changes.append({"index": index, **changed_fields})
+    if finding_changes:
+        changes["findings"] = finding_changes
+
+    old_notes = before.get("data_quality_notes", []) or []
+    new_notes = after.get("data_quality_notes", []) or []
+    added_notes = [note for note in new_notes if note not in old_notes]
+    if added_notes:
+        changes["data_quality_notes_added"] = added_notes
+
+    return changes
+
+
+def _data_quality_issue_records(notes):
+    records = []
+    for note in notes or []:
+        description = str(note)
+        lowered = description.lower()
+        if "malformed timestamp" in lowered or "timestamp" in lowered:
+            issue_type = "timestamp_quality"
+        elif "contradictory" in lowered:
+            issue_type = "contradictory_evidence"
+        elif "compromise" in lowered or "claim" in lowered:
+            issue_type = "unverified_claim"
+        elif "private ip" in lowered or "rfc1918" in lowered:
+            issue_type = "ip_classification"
+        else:
+            issue_type = "data_quality"
+        records.append({"type": issue_type, "description": description})
+    return records
+
+
+def _trace_log_excerpt(log_text, max_lines=TRACE_ITEM_LIMIT):
+    return {
+        "lines": log_text.splitlines()[:max_lines],
+        "total_lines": len(log_text.splitlines()),
+    }
+
+
+def _timeline_trace_rows(timeline):
+    timeline = timeline or []
+    return {
+        "events": [
+            _analysis_to_dict(event)
+            for event in timeline[:TRACE_ITEM_LIMIT]
+        ],
+        "total_events": len(timeline),
+    }
 
 
 VALID_SEVERITIES = {
@@ -1313,6 +1468,12 @@ def _analyze_log_request(
         "prepare-input",
         _prepare_logs,
         log_text,
+        trace_input={"raw_log": log_text},
+        trace_output=lambda value: {
+            "prepared_log": value,
+            "log_characters": len(value),
+            "log_lines": len(value.splitlines()),
+        },
     )
 
     if not logs:
@@ -1346,11 +1507,21 @@ def _analyze_log_request(
     # 4. Deterministic safety enforcement
     # ---------------------------------------------------------------
 
+    before_safety = deepcopy(result)
+    before_safety_snapshot = _analysis_trace_snapshot(before_safety)
     result = _trace_step(
         "evidence-safety",
         _enforce_evidence_safety,
         result,
         logs,
+        trace_input={
+            "log_excerpt": _trace_log_excerpt(logs),
+            "analysis": before_safety_snapshot,
+        },
+        trace_output=lambda updated: {
+            "changes": _analysis_trace_changes(before_safety, updated),
+            "analysis": _analysis_trace_snapshot(updated),
+        },
     )
 
     # ---------------------------------------------------------------
@@ -1361,6 +1532,8 @@ def _analyze_log_request(
         "build-deterministic-timeline",
         _build_deterministic_timeline,
         logs,
+        trace_input={"log_excerpt": _trace_log_excerpt(logs)},
+        trace_output=_timeline_trace_rows,
     )
 
     ai_timeline = result.get(
@@ -1373,6 +1546,13 @@ def _analyze_log_request(
         _merge_ai_timeline_with_deterministic_timeline,
         ai_timeline,
         deterministic_timeline,
+        trace_input={
+            "ai_timeline": _timeline_trace_rows(ai_timeline),
+            "deterministic_timeline": _timeline_trace_rows(
+                deterministic_timeline
+            ),
+        },
+        trace_output=_timeline_trace_rows,
     )
     result["timeline"] = [
         _analysis_to_dict(event)
@@ -1387,62 +1567,19 @@ def _analyze_log_request(
         "investigation-priorities",
         _build_investigation_priorities,
         result,
+        trace_input={
+            "findings": [
+                finding.get("title", "")
+                for finding in result.get("findings", []) or []
+                if isinstance(finding, dict)
+            ],
+            "ai_priorities": result.get("investigation_priority", []),
+        },
+        trace_output=lambda priorities: {
+            "priorities": priorities,
+            "priority_count": len(priorities),
+        },
     )
-
-    # ---------------------------------------------------------------
-    # 7. Add final result to the root Langfuse observation
-    # ---------------------------------------------------------------
-
-    try:
-        from langfuse import get_client
-
-        get_client().update_current_span(
-            input={
-                "log_characters": len(logs),
-                "log_lines": len(logs.splitlines()),
-            },
-            output={"status": "completed"},
-            metadata={
-                "input_characters": len(logs),
-                "input_lines": len(
-                    logs.splitlines()
-                ),
-                "input_classification": result.get(
-                    "input_classification"
-                ),
-                "overall_risk": result.get(
-                    "overall_risk"
-                ),
-                "confidence": result.get(
-                    "confidence"
-                ),
-                "finding_count": len(
-                    result.get(
-                        "findings",
-                        [],
-                    )
-                    or []
-                ),
-                "timeline_count": len(
-                    result.get(
-                        "timeline",
-                        [],
-                    )
-                    or []
-                ),
-                "data_quality_issue_count": len(
-                    result.get(
-                        "data_quality_notes",
-                        [],
-                    )
-                    or []
-                ),
-            },
-        )
-
-    except Exception:
-        # Langfuse telemetry must never break the security analysis.
-        pass
 
     return result
 
@@ -1451,7 +1588,7 @@ def analyze_log(log_text: str):
     """Run one analysis as a single Langfuse root trace and flush it on exit."""
 
     try:
-        client = get_client()
+        client = get_langfuse_client()
         root_observation = client.start_as_current_observation(
             name="security-log-analysis",
             as_type="span",
@@ -1460,8 +1597,66 @@ def analyze_log(log_text: str):
         return _analyze_log_request(log_text)
 
     try:
-        with root_observation:
-            return _analyze_log_request(log_text)
+        with root_observation as root:
+            propagated_metadata = {
+                "pipeline": "security-log-analysis",
+                "provider": "groq",
+                "model": str(
+                    os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+                )[:200],
+            }
+
+            with propagate_attributes(metadata=propagated_metadata):
+                try:
+                    result = _analyze_log_request(log_text)
+                except Exception as exc:
+                    try:
+                        root.update(
+                            input={
+                                "log_characters": len(log_text or ""),
+                                "log_lines": len((log_text or "").splitlines()),
+                            },
+                            output={"status": "error"},
+                            level="ERROR",
+                            status_message=str(
+                                mask_sensitive_data(data=str(exc))
+                            )[:500],
+                        )
+                    except Exception:
+                        pass
+                    raise
+
+                issues = _data_quality_issue_records(
+                    result.get("data_quality_notes", [])
+                )
+                trace_output = dict(result)
+                trace_output["data_quality_issues"] = issues
+
+                try:
+                    root.update(
+                        input={
+                            "log_characters": len(log_text or ""),
+                            "log_lines": len((log_text or "").splitlines()),
+                        },
+                        output=trace_output,
+                        metadata={
+                            "input_characters": len(log_text or ""),
+                            "input_lines": len((log_text or "").splitlines()),
+                            "input_classification": result.get(
+                                "input_classification"
+                            ),
+                            "overall_risk": result.get("overall_risk"),
+                            "confidence": result.get("confidence"),
+                            "finding_count": len(result.get("findings", []) or []),
+                            "timeline_count": len(result.get("timeline", []) or []),
+                            "data_quality_issue_count": len(issues),
+                            "data_quality_issues": issues,
+                        },
+                    )
+                except Exception:
+                    pass
+
+                return result
     finally:
         try:
             client.flush()

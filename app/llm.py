@@ -2,9 +2,9 @@ import os
 import time
 import json
 from dotenv import load_dotenv
-from langfuse import get_client, observe
 from openai import OpenAI
 
+from .observability import get_langfuse_client, mask_sensitive_data
 from .schemas import SecurityAnalysis
 
 
@@ -811,6 +811,19 @@ Return ONLY the required JSON object.
 """
 
 
+def _build_model_messages(log_text: str) -> list[dict[str, str]]:
+    return [
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT,
+        },
+        {
+            "role": "user",
+            "content": _build_user_prompt(log_text),
+        },
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Error helpers
 # ---------------------------------------------------------------------------
@@ -989,24 +1002,14 @@ def _request_ai_analysis(
     """
     Send the raw security input to Groq with retry handling.
     """
+    messages = _build_model_messages(log_text)
     last_exception = None
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             return client.chat.completions.create(
                 model=GROQ_MODEL,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": SYSTEM_PROMPT,
-                    },
-                    {
-                        "role": "user",
-                        "content": _build_user_prompt(
-                            log_text
-                        ),
-                    },
-                ],
+                messages=messages,
                 response_format={
                     "type": "json_object",
                 },
@@ -1061,14 +1064,16 @@ def _request_ai_analysis(
 # Main AI analysis function
 # ---------------------------------------------------------------------------
 
-@observe(
-    name="ai-security-log-analysis",
-    as_type="generation",
-    capture_input=False,
-    capture_output=False,
-)
-def analyze_logs_with_ai(
+class _InvalidAIResponse(RuntimeError):
+    def __init__(self, message, raw_model_text, validation_status):
+        super().__init__(message)
+        self.raw_model_text = raw_model_text
+        self.validation_status = validation_status
+
+
+def _analyze_logs_with_ai(
     log_text: str,
+    generation,
 ) -> SecurityAnalysis:
     """
     Analyze security input using Groq.
@@ -1126,8 +1131,6 @@ def analyze_logs_with_ai(
         }
 
         try:
-            from langfuse import get_client
-
             generation_details = {
                 "model": GROQ_MODEL,
                 "usage_details": usage_details,
@@ -1147,7 +1150,7 @@ def analyze_logs_with_ai(
                 if normalized_costs:
                     generation_details["cost_details"] = normalized_costs
 
-            get_client().update_current_generation(**generation_details)
+            generation.update(**generation_details)
         except Exception:
             pass
 
@@ -1178,8 +1181,10 @@ def analyze_logs_with_ai(
     try:
         raw_analysis = json.loads(content)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(
-            "The AI returned invalid JSON for the security analysis."
+        raise _InvalidAIResponse(
+            "The AI returned invalid JSON for the security analysis.",
+            content,
+            "invalid_json",
         ) from exc
 
     try:
@@ -1187,44 +1192,87 @@ def analyze_logs_with_ai(
             raw_analysis
         )
     except Exception as exc:
-        raise RuntimeError(
+        raise _InvalidAIResponse(
             "The AI returned JSON that does not match the "
-            f"SecurityAnalysis schema: {exc}"
+            f"SecurityAnalysis schema: {exc}",
+            content,
+            "schema_invalid",
         ) from exc
 
-    # ---------------------------------------------------------------
-    # Langfuse output
-    # ---------------------------------------------------------------
-
-    try:
-        from langfuse import get_client
-
-        get_client().update_current_generation(
-            output={"status": "validated"},
-            input={
-                "log_characters": len(log_text),
-                "log_lines": len(log_text.splitlines()),
-            },
-            metadata={
-                "provider": "groq",
-                "input_classification": (
-                    analysis.input_classification
-                ),
-                "overall_risk": (
-                    analysis.overall_risk
-                ),
-                "confidence": (
-                    analysis.confidence
-                ),
-                "finding_count": len(
-                    analysis.findings
-                ),
-                "timeline_count": len(
-                    analysis.timeline
-                ),
-            },
-        )
-    except Exception:
-        pass
-
     return analysis
+
+
+def analyze_logs_with_ai(log_text: str) -> SecurityAnalysis:
+    """Analyze with Groq and trace the redacted request and validated response."""
+
+    client = get_langfuse_client()
+    messages = _build_model_messages(log_text)
+    generation_context = client.start_as_current_observation(
+        name="ai-security-log-analysis",
+        as_type="generation",
+        model=GROQ_MODEL,
+    )
+
+    with generation_context as generation:
+        try:
+            generation.update(
+                input=mask_sensitive_data(data={"messages": messages}),
+                metadata={
+                    "provider": "groq",
+                    "model": GROQ_MODEL,
+                    "input_characters": len(log_text or ""),
+                    "input_lines": len((log_text or "").splitlines()),
+                    "validation_status": "pending",
+                },
+            )
+        except Exception:
+            pass
+
+        try:
+            analysis = _analyze_logs_with_ai(log_text, generation)
+        except _InvalidAIResponse as exc:
+            try:
+                generation.update(
+                    output={"raw_model_text": exc.raw_model_text},
+                    metadata={"validation_status": exc.validation_status},
+                    level="ERROR",
+                    status_message=str(
+                        mask_sensitive_data(data=str(exc))
+                    )[:500],
+                )
+            except Exception:
+                pass
+            raise
+        except Exception as exc:
+            try:
+                generation.update(
+                    metadata={"validation_status": "failed"},
+                    level="ERROR",
+                    status_message=str(
+                        mask_sensitive_data(data=str(exc))
+                    )[:500],
+                )
+            except Exception:
+                pass
+            raise
+
+        try:
+            generation.update(
+                output=analysis.model_dump(),
+                metadata={
+                    "provider": "groq",
+                    "model": GROQ_MODEL,
+                    "input_characters": len(log_text),
+                    "input_lines": len(log_text.splitlines()),
+                    "input_classification": analysis.input_classification,
+                    "overall_risk": analysis.overall_risk,
+                    "confidence": analysis.confidence,
+                    "finding_count": len(analysis.findings),
+                    "timeline_count": len(analysis.timeline),
+                    "validation_status": "validated",
+                },
+            )
+        except Exception:
+            pass
+
+        return analysis

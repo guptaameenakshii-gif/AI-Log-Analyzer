@@ -187,7 +187,11 @@ Create a `.env` file in the project root:
 ```env
 GROQ_API_KEY=your_api_key_here
 GROQ_MODEL=openai/gpt-oss-120b
+LANGFUSE_REDACT_IPS=true
+LANGFUSE_REDACT_USERNAMES=true
 ```
+
+Langfuse masking always redacts credentials, API keys, passwords, and tokens. Set `LANGFUSE_REDACT_IPS` or `LANGFUSE_REDACT_USERNAMES` to `false` to retain those values in trace payloads; both default to `true`.
 
 Start the app:
 
@@ -228,7 +232,7 @@ Run the full suite:
 pytest -q
 ```
 
-Latest verified result: **63 passed**.
+Latest verified result: **66 passed**.
 
 ### Evaluation Results
 
@@ -273,6 +277,8 @@ This structure makes it possible to inspect where time is spent and whether indi
 - Observation status and analysis metadata
 - Validation and provider errors
 
+The LLM generation records the system and user messages after client-side masking, then the full validated structured response. JSON/schema failures are recorded at `ERROR` level with the raw model text as generation output (also passed through the mask). Child spans include compact inputs/outputs; the root output contains the final merged result and typed data-quality issue records.
+
 ### Live Trace Verification
 
 A live synthetic analysis request was verified in Langfuse on 2026-10-07.
@@ -304,6 +310,8 @@ security-log-analysis
 The AI generation is the main latency contributor, while the deterministic timeline, merge, evidence-safety, and priority-processing steps complete in milliseconds.
 
 A separate synthetic error trace was also verified where the AI provider was deliberately unavailable. The trace recorded the error without producing an unhandled application exception.
+
+The latest full-payload masking check used a synthetic two-line log. The [trace is available here](https://cloud.langfuse.com/project/cmugsjzhe005nad0f201mnvh3/traces/36c41ca859704177ca079a8adcf646e3): the root contains the final result and two typed data-quality issues; its generation has system/user messages, one finding, two timeline entries, model `openai/gpt-oss-120b`, 4,820 tokens, and 3.946 seconds latency. Fake usernames, IPs, tokens, and passwords were absent from the stored messages. The provider did not return cost details for this request.
 
 - Latency and token usage
 - Model/provider information
