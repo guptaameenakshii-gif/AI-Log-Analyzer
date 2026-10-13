@@ -625,6 +625,15 @@ def build_executive_assessment(result) -> str:
 # FINDINGS
 # ============================================================
 
+def display_attack_pattern(value) -> str:
+    if not isinstance(value, str) or not value.strip():
+        return "Pattern Undetermined"
+
+    if value.strip().lower() == "none identified":
+        return "Unclassified Suspicious Activity"
+
+    return value.strip()
+
 def build_findings_table(findings) -> str:
 
     findings = [
@@ -683,9 +692,8 @@ def build_findings_table(findings) -> str:
             "Untitled finding",
         )
 
-        attack_pattern = finding.get(
-            "attack_pattern",
-            "None identified",
+        attack_pattern = display_attack_pattern(
+        finding.get("attack_pattern")
         )
 
         actions = normalize_list(
@@ -1008,9 +1016,8 @@ def build_investigation(findings) -> str:
             "",
         )
 
-        attack_pattern = finding.get(
-            "attack_pattern",
-            "None identified",
+        attack_pattern = display_attack_pattern(
+        finding.get("attack_pattern")
         )
 
         evidence = normalize_list(

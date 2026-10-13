@@ -114,8 +114,8 @@ class SecurityFinding(BaseModel):
 
     attack_pattern: str = Field(
         description=(
-            "Potential attack pattern supported by evidence, "
-            "or exactly 'None identified'."
+        "Evidence-supported attack pattern name, "
+        "'Unclassified Suspicious Activity', or 'Pattern Undetermined'."
         )
     )
 

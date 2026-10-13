@@ -542,16 +542,19 @@ LOW:
 Evidence is incomplete, contradictory, malformed, or largely based
 on claims rather than direct observations.
 
-============================================================
 17. ATTACK PATTERN
 ============================================================
 
-If there is not enough evidence to identify an attack pattern,
-use exactly:
+Always provide a meaningful, evidence-calibrated label for an existing finding.
 
-"None identified"
+- If a specific attack pattern is supported by evidence, provide its name.
+- If suspicious activity exists but no specific pattern can be identified,
+  use exactly: "Unclassified Suspicious Activity".
+- If the available evidence is insufficient to characterize the activity,
+  use exactly: "Pattern Undetermined".
 
-Do not force an attack technique or framework classification.
+Do not force a MITRE ATT&CK technique or claim a confirmed attack without
+supporting evidence.
 
 ============================================================
 18. DATA QUALITY
