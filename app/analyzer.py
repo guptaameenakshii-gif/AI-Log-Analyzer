@@ -1471,6 +1471,7 @@ def _enforce_evidence_safety(
             "Compromise is reported as a claim rather than "
             "verified by direct telemetry in the supplied input.",
         )
+        _lower_confidence_if_high(analysis)
 
         summary = str(
             _analysis_field(

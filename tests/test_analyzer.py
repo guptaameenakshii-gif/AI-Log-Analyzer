@@ -1184,6 +1184,7 @@ def test_unsupported_compromise_finding_is_downgraded_consistently():
     )
     assert "does not independently" in analysis.executive_summary.lower()
     assert analysis.overall_risk != "CRITICAL"
+    assert analysis.confidence == "MEDIUM"
 
 
 def test_supported_critical_finding_preserves_overall_risk():
