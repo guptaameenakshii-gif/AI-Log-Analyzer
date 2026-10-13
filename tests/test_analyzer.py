@@ -1194,3 +1194,22 @@ def test_supported_critical_finding_preserves_overall_risk():
     assert unsupported_finding.severity == "MEDIUM"
     assert supported_finding.severity == "CRITICAL"
     assert analysis.overall_risk == "CRITICAL"
+
+def test_prompt_requires_finding_fields_to_align():
+    from app.llm import SYSTEM_PROMPT
+
+    prompt = SYSTEM_PROMPT.lower()
+
+    assert "title and description describe the same event and outcome" in prompt
+    assert "evidence directly supports the described event" in prompt
+    assert "confidence reflects the strength and consistency of that evidence" in prompt
+    assert "severity reflects potential impact, independently of confidence" in prompt
+
+def test_prompt_distinguishes_detection_execution_and_compromise():
+    from app.llm import SYSTEM_PROMPT
+
+    prompt = SYSTEM_PROMPT.lower()
+
+    assert "a malware detection does not alone prove execution" in prompt
+    assert "a successful login is not alone proof of unauthorized access" in prompt
+    assert "if evidence supports an attempt but not its outcome" in prompt

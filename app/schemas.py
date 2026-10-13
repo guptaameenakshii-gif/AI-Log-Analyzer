@@ -93,29 +93,53 @@ class SecurityFinding(BaseModel):
     )
 
     severity: Severity = Field(
-        description="Severity based only on supplied evidence."
+        description=(
+            "Severity of the observed or credibly indicated security "
+            "activity based on potential impact. Severity is independent "
+            "of confidence: do not lower severity solely because "
+            "confidence is low, and do not raise severity based only "
+            "on alarming wording or an unverified claim."
+        )
     )
 
     confidence: Confidence = Field(
-        description="Confidence that the finding is supported by evidence."
+        description=(
+            "Confidence that this specific finding and its interpretation "
+            "are supported by the supplied evidence. Use HIGH for direct, "
+            "consistent evidence; MEDIUM for meaningful evidence with "
+            "some uncertainty; LOW for incomplete, contradictory, "
+            "indirect, or claim-based evidence."
+        )
     )
 
     description: str = Field(
-        description="Evidence-grounded explanation of the finding."
+        description=(
+            "Explain what the evidence directly shows, what it may mean, "
+            "and what remains unverified. Distinguish attempted from "
+            "successful activity, detection from execution, and blocking "
+            "from successful compromise. Do not state an inferred outcome "
+            "as fact."
+        )
     )
 
     evidence: list[str] = Field(
         default_factory=list,
         description=(
-            "Concrete observations from the supplied input. "
-            "Do not invent evidence."
+            "Concrete observations from the supplied input that support "
+            "this finding. Preserve the original meaning; do not invent, "
+            "paraphrase a claim as telemetry, or cite unrelated events "
+            "as proof."
         ),
     )
 
     attack_pattern: str = Field(
         description=(
-        "Evidence-supported attack pattern name, "
-        "'Unclassified Suspicious Activity', or 'Pattern Undetermined'."
+            "Use a specific attack-pattern name only when supported by "
+            "the evidence. Use 'Unclassified Suspicious Activity' when "
+            "suspicious activity is evident but its specific pattern is "
+            "unclear. Use 'Pattern Undetermined' when evidence is "
+            "insufficient to characterize the activity. Do not imply "
+            "successful execution or compromise without supporting evidence."
         )
     )
 

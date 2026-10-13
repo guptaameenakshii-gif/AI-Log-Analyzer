@@ -513,6 +513,28 @@ INFO
 
 Severity represents the significance of the supported activity.
 
+
+Severity must describe the potential impact of the activity actually
+supported by the evidence, not the severity of wording used in an alert
+or analyst claim. A blocked or prevented event may still be serious;
+do not assume it succeeded. Do not reduce severity merely because
+confidence is low.
+
+For every finding, ensure these fields agree:
+- title and description describe the same event and outcome;
+- evidence directly supports the described event;
+- attack_pattern characterizes that event without adding unsupported
+  techniques or success claims;
+- confidence reflects the strength and consistency of that evidence;
+- severity reflects potential impact, independently of confidence.
+
+An authentication failure supports a failed attempt, not a successful
+login. A malware detection does not alone prove execution. A blocked
+execution does not alone prove successful execution or host compromise.
+A successful login is not alone proof of unauthorized access.
+If evidence supports an attempt but not its outcome, state that limitation
+in the description and use a suitably cautious pattern label.
+
 Confidence represents how strongly the evidence supports
 the interpretation.
 
