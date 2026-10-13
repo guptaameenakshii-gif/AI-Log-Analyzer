@@ -139,6 +139,8 @@ def test_prompt_injection_in_log_is_treated_as_untrusted_data():
     messages = llm._build_model_messages(hostile_text)
 
     system_prompt = " ".join(messages[0]["content"].lower().split())
+    assert "complete, non-empty json object" in system_prompt
+    assert "never return an empty response" in system_prompt
     user_prompt = messages[1]["content"]
 
     assert "untrusted" in system_prompt
