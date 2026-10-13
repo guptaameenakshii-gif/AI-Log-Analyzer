@@ -1254,6 +1254,7 @@ def _downgrade_unsupported_compromise_finding(finding):
         "attacker successfully accessed",
         "unauthorized access confirmed",
         "malware execution confirmed",
+        "confirmed account compromise",
     )
 
     fields_to_check = (
@@ -1536,6 +1537,44 @@ def _enforce_evidence_safety(
                     "compromise, but does not independently "
                     "verify that compromise occurred."
                 ),
+            )
+
+    # ------------------------------------------------------------------
+    # Finding-level compromise-safety guardrail
+    # ------------------------------------------------------------------
+    # Unrelated telemetry elsewhere in the input must not validate an
+    # unsupported compromise claim in an individual finding.
+
+    findings = (
+        _analysis_field(
+            analysis,
+            "findings",
+            [],
+        )
+        or []
+    )
+
+    for finding in findings:
+        finding_text = " ".join(
+            str(
+                _analysis_field(
+                    finding,
+                    field,
+                    "",
+                )
+            )
+            for field in (
+                "title",
+                "description",
+                "attack_pattern",
+            )
+        )
+
+        if _contains_unsupported_compromise_confirmation(
+            finding_text
+        ):
+            _downgrade_unsupported_compromise_finding(
+                finding
             )
 
     # ------------------------------------------------------------------

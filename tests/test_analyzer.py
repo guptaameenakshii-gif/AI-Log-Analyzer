@@ -1105,6 +1105,44 @@ def test_unrelated_successful_login_does_not_validate_compromise_claim():
 
     assert _has_claimed_compromise_without_telemetry(log_text) is True
 
+def test_unrelated_successful_login_does_not_bypass_evidence_safety():
+    from app.analyzer import _enforce_evidence_safety
+    from app.schemas import SecurityAnalysis, SecurityFinding
+
+    finding = SecurityFinding(
+        title="Confirmed account compromise",
+        severity="CRITICAL",
+        confidence="HIGH",
+        description="The account was compromised.",
+        evidence=["Analyst note: account was compromised."],
+        attack_pattern="Account takeover",
+        recommended_actions=["Disable the account immediately"],
+    )
+
+    analysis = SecurityAnalysis(
+        input_classification="MIXED",
+        data_quality_notes=[],
+        executive_summary="The account was compromised.",
+        overall_risk="CRITICAL",
+        confidence="HIGH",
+        findings=[finding],
+        timeline=[],
+        investigation_priority=[],
+    )
+
+    log_text = (
+        "Analyst note: account was compromised.\n"
+        "2026-01-01 09:00:00 INFO login successful "
+        "user=alice source_ip=192.0.2.10"
+    )
+
+    _enforce_evidence_safety(analysis, log_text)
+
+    assert "unverified" in finding.title.lower()
+    assert finding.severity != "CRITICAL"
+    assert finding.confidence == "LOW"
+    assert analysis.overall_risk != "CRITICAL"
+    assert "does not independently" in analysis.executive_summary.lower()
 
 def test_unsupported_compromise_finding_is_downgraded_consistently():
     from app.analyzer import _enforce_evidence_safety
