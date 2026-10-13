@@ -20,6 +20,14 @@ from .timeline import (
 MAX_LOG_CHARACTERS = 240_000
 MIN_MEANINGFUL_CHARACTERS = 10
 
+def _redact_report_evidence(text: str) -> str:
+    """Redact usernames in report evidence regardless of observability settings."""
+    return re.sub(
+        r"(\buser\s*[=:]\s*['\"]?)[a-zA-Z0-9_.@-]+",
+        r"\1[REDACTED]",
+        str(text or ""),
+        flags=re.IGNORECASE,
+    )
 
 def _trace_step(
     name,
@@ -42,7 +50,9 @@ def _trace_step(
     with observation as span:
         if trace_input is not None:
             try:
-                span.update(input=trace_input)
+                span.update(
+                input=mask_sensitive_data(data=trace_input)
+            )
             except Exception:
                 pass
 
@@ -62,7 +72,9 @@ def _trace_step(
 
         if trace_output is not None:
             try:
-                span.update(output=trace_output(result))
+                span.update(
+                output=mask_sensitive_data(data=trace_output(result))
+                )
             except Exception:
                 pass
 
@@ -473,23 +485,165 @@ def _correct_private_ip_labels(analysis, log_text: str):
     return analysis
 
 
-def _build_deterministic_timeline(log_text: str) -> list[TimelineEvent]:
+
+def _describe_timeline_event(log_line: str) -> str:
     """
-    Build the security timeline deterministically from the original
-    log input.
+    Produce a concise, deterministic description of a recognizable
+    log event without asserting that an attack is confirmed.
 
-    The LLM is not responsible for deciding chronological order.
-
-    Rules:
-    - timestamps are extracted in Python;
-    - timestamped events are sorted chronologically;
-    - events without timestamps are retained and placed last;
-    - the original log line is preserved as evidence;
-    - line numbers are preserved for traceability;
-    - severity is conservative and based only on observable wording;
-    - this timeline is not itself a security verdict.
+    Descriptions are based on observable wording only.
+    Unrecognized entries receive a neutral fallback.
     """
+    text = log_line.casefold()
 
+    patterns = (
+        (
+            (
+                "failed login",
+                "login failed",
+                "authentication failed",
+                "auth failure",
+                "login denied",
+                "password rejected",
+                "invalid credentials",
+                "authentication failure",
+                "login failure",
+                "authentication denied",
+            ),
+            "Log records an authentication failure.",
+        ),
+        (
+            (
+                "successful login",
+                "login successful",
+                "authentication succeeded",
+                "authentication successful",
+                "authentication success",
+                "login success",
+                "authenticated successfully",
+                "login accepted",
+            ),
+            "Log records a successful authentication.",
+        ),
+        (
+            (
+                "account temporarily locked",
+                "account locked",
+                "account lockout",
+                "account locked out",
+            ),
+            "Log records an account-lockout event.",
+        ),
+        (
+            (
+                "permission denied",
+                "access denied",
+                "forbidden",
+            ),
+            "Log records an access-denied event.",
+        ),
+        (
+            (
+                "invalid token",
+                "expired token",
+            ),
+            "Log records an invalid or expired token.",
+        ),
+        (
+            (
+                "ransomware",
+                "malware",
+                "trojan",
+                "virus",
+            ),
+            "Log contains a malware-related indicator.",
+        ),
+        (
+            (
+                "unauthorized access",
+                "intrusion",
+            ),
+            "Log contains wording indicating unauthorized access.",
+        ),
+    )
+
+    for indicators, description in patterns:
+        if any(indicator in text for indicator in indicators):
+            return description
+
+    return "Observed log entry; no recognized event pattern."
+
+
+def _correlate_authentication_events(timeline, original_log_text=None):
+    """
+    Group repeated authentication failures by user internally.
+    Return pseudonymous account labels, never original usernames.
+    """
+    import re
+    from collections import defaultdict
+
+    failures_by_user = defaultdict(list)
+
+    for event in timeline:
+        evidence = str(getattr(event, "evidence", "") or "")
+
+        if not re.search(
+            r"authentication\s+failed|failed\s+login|"
+            r"login\s+failed|authentication\s+failure",
+            evidence,
+            re.IGNORECASE,
+        ):
+            continue
+
+        line_number = getattr(event, "line_number", None)
+        if line_number is None or original_log_text is None:
+            continue
+
+        lines = original_log_text.splitlines()
+        if line_number < 1 or line_number > len(lines):
+            continue
+
+        original_line = lines[line_number - 1]
+        match = re.search(
+            r"\buser\s*[=:]\s*['\"]?([a-zA-Z0-9_.@-]+)",
+            original_line,
+            re.IGNORECASE,
+        )
+        if not match:
+            continue
+
+        user = match.group(1)
+        failures_by_user[user].append(event)
+
+    correlations = []
+    for events in failures_by_user.values():
+        if len(events) < 2:
+            continue
+
+        correlations.append({
+            "user": f"account_{len(correlations) + 1}",
+            "event_count": len(events),
+            "line_numbers": sorted(
+                event.line_number
+                for event in events
+                if event.line_number is not None
+            ),
+        })
+
+    return correlations
+
+def _build_deterministic_timeline(
+    log_text: str,
+) -> list[TimelineEvent]:
+    """
+    Build a timeline from the original log input.
+
+    Python remains authoritative for timestamp extraction, ordering,
+    severity classification, evidence preservation, and line numbers.
+    Event descriptions use conservative deterministic text patterns.
+
+    This timeline is not itself a security verdict.
+    """
     candidates = extract_timeline_candidates(log_text)
     candidates = sort_timeline_candidates(candidates)
 
@@ -497,24 +651,10 @@ def _build_deterministic_timeline(log_text: str) -> list[TimelineEvent]:
 
     for candidate in candidates:
         original_log = candidate["original_log"]
-
         timestamp = candidate["timestamp"]
 
-        severity = classify_timeline_severity(
-            original_log
-        )
-
-        # Keep the event description deliberately factual.
-        # Do not turn an authentication failure into a confirmed
-        # attack or incident.
-        if timestamp == "Unknown":
-            event_description = (
-                "Observed log event without a reliable timestamp."
-            )
-        else:
-            event_description = (
-                "Observed log event at the recorded timestamp."
-            )
+        severity = classify_timeline_severity(original_log)
+        event_description = _describe_timeline_event(original_log)
 
         timeline.append(
             TimelineEvent(
@@ -523,7 +663,7 @@ def _build_deterministic_timeline(log_text: str) -> list[TimelineEvent]:
                 severity=severity,
                 evidence=(
                     f"Line {candidate['line_number']}: "
-                    f"{original_log}"
+                    f"{_redact_report_evidence(original_log)}"
                 ),
                 line_number=candidate["line_number"],
             )
@@ -567,33 +707,21 @@ def _merge_ai_timeline_with_deterministic_timeline(
     """
     Merge AI interpretation into the deterministic timeline.
 
-    Python remains authoritative for:
-
-    - ordering
-    - timestamps
-    - original evidence
-
-    AI may provide:
-
-    - event description
-    - severity
-
-    AI events are matched by timestamp.
+    Python remains authoritative for timestamps, ordering,
+    original evidence, and source line numbers.
+    AI may provide event descriptions and severity.
+    Events are matched only when timestamps are unambiguous.
     """
-
     if not deterministic_timeline:
         return ai_timeline or []
 
     ai_timeline = ai_timeline or []
-
     ai_by_timestamp = {}
     deterministic_counts = {}
 
     for event in deterministic_timeline:
         timestamp = _get_ai_timeline_value(
-            event,
-            "timestamp",
-            "Unknown",
+            event, "timestamp", "Unknown"
         )
         deterministic_counts[timestamp] = (
             deterministic_counts.get(timestamp, 0) + 1
@@ -601,49 +729,36 @@ def _merge_ai_timeline_with_deterministic_timeline(
 
     for ai_event in ai_timeline:
         timestamp = _get_ai_timeline_value(
-            ai_event,
-            "timestamp",
-            None,
+            ai_event, "timestamp", None
         )
-
         if timestamp is None:
             continue
 
         timestamp = str(timestamp).strip()
-
-        if not timestamp:
-            continue
-
-        ai_by_timestamp.setdefault(timestamp, []).append(ai_event)
+        if timestamp:
+            ai_by_timestamp.setdefault(timestamp, []).append(ai_event)
 
     merged = []
 
     for event in deterministic_timeline:
         timestamp = _get_ai_timeline_value(
-            event,
-            "timestamp",
-            "Unknown",
+            event, "timestamp", "Unknown"
         )
 
-        matching_ai_events = ai_by_timestamp.get(timestamp, [])
+        matching_events = ai_by_timestamp.get(timestamp, [])
         ai_event = (
-            matching_ai_events[0]
+            matching_events[0]
             if timestamp != "Unknown"
             and deterministic_counts.get(timestamp) == 1
-            and len(matching_ai_events) == 1
+            and len(matching_events) == 1
             else None
         )
 
         ai_description = _get_ai_timeline_value(
-            ai_event,
-            "event",
-            "",
+            ai_event, "event", ""
         )
-
         ai_severity = _get_ai_timeline_value(
-            ai_event,
-            "severity",
-            None,
+            ai_event, "severity", None
         )
 
         merged.append(
@@ -651,29 +766,19 @@ def _merge_ai_timeline_with_deterministic_timeline(
                 timestamp=timestamp,
                 event=(
                     ai_description
-                    or _get_ai_timeline_value(
-                        event,
-                        "event",
-                        "",
-                    )
+                    or _get_ai_timeline_value(event, "event", "")
                 ),
                 severity=_normalize_severity(
                     ai_severity,
                     fallback=_get_ai_timeline_value(
-                        event,
-                        "severity",
-                        "INFO",
+                        event, "severity", "INFO"
                     ),
                 ),
                 evidence=_get_ai_timeline_value(
-                    event,
-                    "evidence",
-                    "",
+                    event, "evidence", ""
                 ),
                 line_number=_get_ai_timeline_value(
-                    event,
-                    "line_number",
-                    None,
+                    event, "line_number", None
                 ),
             )
         )
@@ -810,14 +915,15 @@ def _analysis_text(analysis):
     return " ".join(parts)
 
 
+
 def _has_direct_compromise_evidence(log_text):
     """
-    Determine whether the supplied input contains reasonably direct
-    telemetry supporting confirmed compromise.
-
-    This is intentionally conservative.
+    Conservatively identify compromise indicators in telemetry-style
+    log entries, not in free-form analyst notes or narrative claims.
     """
-    text = str(log_text or "").lower()
+    import re
+
+    text = str(log_text or "")
 
     direct_indicators = (
         "unauthorized access confirmed",
@@ -828,10 +934,41 @@ def _has_direct_compromise_evidence(log_text):
         "malware execution confirmed",
     )
 
-    return any(
-        indicator in text
-        for indicator in direct_indicators
+    timestamp_pattern = re.compile(
+        r"^\s*(?:\d{4}-\d{2}-\d{2}[T ]|\[?\w{3}\s+\d{1,2}\s+\d{2}:)"
     )
+
+    structured_markers = (
+        "event=",
+        "event_type=",
+        "action=",
+        "alert=",
+        "signature=",
+        "detection=",
+        "rule=",
+    )
+
+    for line in text.splitlines():
+        normalized = line.lower().strip()
+
+        if not any(
+            indicator in normalized
+            for indicator in direct_indicators
+        ):
+            continue
+
+        is_timestamped = bool(
+            timestamp_pattern.search(line)
+        )
+        is_structured = any(
+            marker in normalized
+            for marker in structured_markers
+        )
+
+        if is_timestamped or is_structured:
+            return True
+
+    return False
 
 
 def _contains_unsupported_compromise_confirmation(text):
@@ -936,18 +1073,15 @@ def _has_contradictory_authentication(
 # Compromise claim detection
 # ---------------------------------------------------------------------------
 
+
 def _has_claimed_compromise_without_telemetry(
     log_text: str,
 ) -> bool:
     """
-    Detect narrative compromise claims without direct telemetry.
-
-    This does NOT assert that the compromise occurred.
+    Detect compromise claims that lack supporting telemetry on the
+    same line. Unrelated events must not validate a narrative claim.
     """
-
-    text = str(
-        log_text or ""
-    ).lower()
+    text = str(log_text or "").lower()
 
     claim_markers = (
         "account was compromised",
@@ -961,6 +1095,10 @@ def _has_claimed_compromise_without_telemetry(
         "we were breached",
         "account takeover",
         "attacker gained access",
+        "compromise confirmed",
+        "breach confirmed",
+        "unauthorized access confirmed",
+        "malware execution confirmed",
     )
 
     telemetry_markers = (
@@ -975,25 +1113,24 @@ def _has_claimed_compromise_without_telemetry(
         "privilege escalation",
     )
 
-    has_claim = any(
-        marker in text
-        for marker in claim_markers
-    )
+    for line in text.splitlines():
+        has_claim = any(
+            marker in line
+            for marker in claim_markers
+        )
 
-    has_telemetry = any(
-        marker in text
-        for marker in telemetry_markers
-    )
+        if not has_claim:
+            continue
 
-    return (
-        has_claim
-        and not has_telemetry
-    )
+        has_telemetry_on_same_line = any(
+            marker in line
+            for marker in telemetry_markers
+        )
 
+        if not has_telemetry_on_same_line:
+            return True
 
-# ---------------------------------------------------------------------------
-# Data-quality helpers
-# ---------------------------------------------------------------------------
+    return False
 
 def _append_data_quality_note(
     analysis,
@@ -1083,6 +1220,124 @@ def _lower_confidence_if_high(
 # ---------------------------------------------------------------------------
 # Deterministic evidence safety
 # ---------------------------------------------------------------------------
+
+
+def _downgrade_unsupported_compromise_finding(finding):
+    """
+    Remove unsupported confirmed-compromise claims from a finding
+    while preserving its useful investigative context.
+    """
+    title = str(
+        _analysis_field(finding, "title", "")
+    ).strip()
+
+    description = str(
+        _analysis_field(finding, "description", "")
+    ).strip()
+
+    attack_pattern = str(
+        _analysis_field(finding, "attack_pattern", "")
+    ).strip()
+
+    unsafe_phrases = (
+        "confirmed compromise",
+        "confirmed breach",
+        "compromise confirmed",
+        "breach confirmed",
+        "account was compromised",
+        "account has been compromised",
+        "system was compromised",
+        "system has been compromised",
+        "server was compromised",
+        "attacker successfully accessed",
+        "unauthorized access confirmed",
+        "malware execution confirmed",
+    )
+
+    fields_to_check = (
+        title,
+        description,
+        attack_pattern,
+    )
+
+    if not any(
+        _text_contains_any(value, unsafe_phrases)
+        for value in fields_to_check
+    ):
+        return
+
+    if _text_contains_any(title, unsafe_phrases):
+        _set_analysis_field(
+            finding,
+            "title",
+            "Unverified compromise claim requires investigation",
+        )
+
+    if _text_contains_any(description, unsafe_phrases):
+        _set_analysis_field(
+            finding,
+            "description",
+            (
+                "The supplied input contains a compromise claim, "
+                "but the available evidence does not independently "
+                "confirm that compromise occurred. Validate the "
+                "claim against original authentication, endpoint, "
+                "and network telemetry."
+            ),
+        )
+
+    if _text_contains_any(attack_pattern, unsafe_phrases):
+        _set_analysis_field(
+            finding,
+            "attack_pattern",
+            "Potential compromise; attack pattern not yet verified",
+        )
+
+    severity = str(
+        _analysis_field(finding, "severity", "")
+    ).strip().upper()
+
+    if severity in ("CRITICAL", "HIGH"):
+        _set_analysis_field(
+            finding,
+            "severity",
+            "MEDIUM",
+        )
+
+    confidence = str(
+        _analysis_field(finding, "confidence", "")
+    ).strip().upper()
+
+    if confidence == "HIGH":
+        _set_analysis_field(
+            finding,
+            "confidence",
+            "LOW",
+        )
+
+    actions = _analysis_field(
+        finding,
+        "recommended_actions",
+        [],
+    )
+
+    if isinstance(actions, list):
+        safer_actions = [
+            str(action).strip()
+            for action in actions
+            if str(action).strip()
+        ]
+
+        safer_actions.insert(
+            0,
+            "Validate the reported claim against original security telemetry before treating compromise as confirmed.",
+        )
+
+        _set_analysis_field(
+            finding,
+            "recommended_actions",
+            list(dict.fromkeys(safer_actions)),
+        )
 
 def _enforce_evidence_safety(
     analysis,
@@ -1339,6 +1594,9 @@ def _enforce_evidence_safety(
                     )
                 ).strip()
 
+                _downgrade_unsupported_compromise_finding(
+                    finding
+                )
                 if _contains_unsupported_compromise_confirmation(
                     description
                 ):
@@ -1431,12 +1689,12 @@ def _analyze_log_request(
     Langfuse trace structure:
 
         security-log-analysis
-        ├── prepare-input
-        ├── ai-security-log-analysis
-        ├── evidence-safety
-        ├── build-deterministic-timeline
-        ├── merge-ai-timeline
-        └── investigation-priorities
+        â”œâ”€â”€ prepare-input
+        â”œâ”€â”€ ai-security-log-analysis
+        â”œâ”€â”€ evidence-safety
+        â”œâ”€â”€ build-deterministic-timeline
+        â”œâ”€â”€ merge-ai-timeline
+        â””â”€â”€ investigation-priorities
 
     AI is responsible for:
 
@@ -1465,15 +1723,17 @@ def _analyze_log_request(
     # ---------------------------------------------------------------
 
     logs = _trace_step(
-        "prepare-input",
-        _prepare_logs,
-        log_text,
-        trace_input={"raw_log": log_text},
-        trace_output=lambda value: {
-            "prepared_log": value,
-            "log_characters": len(value),
-            "log_lines": len(value.splitlines()),
-        },
+    "prepare-input",
+    _prepare_logs,
+    log_text,
+    trace_input={
+        "log_characters": len(log_text or ""),
+        "log_lines": len((log_text or "").splitlines()),
+    },
+    trace_output=lambda value: {
+        "log_characters": len(value),
+        "log_lines": len(value.splitlines()),
+    },
     )
 
     if not logs:
@@ -1536,6 +1796,7 @@ def _analyze_log_request(
         trace_output=_timeline_trace_rows,
     )
 
+
     ai_timeline = result.get(
         "timeline",
         [],
@@ -1552,12 +1813,29 @@ def _analyze_log_request(
                 deterministic_timeline
             ),
         },
-        trace_output=_timeline_trace_rows,
     )
+
     result["timeline"] = [
         _analysis_to_dict(event)
         for event in merged_timeline
     ]
+
+    result["correlations"] = _trace_step(
+        "correlate-authentication-events",
+        _correlate_authentication_events,
+        deterministic_timeline,
+        logs,
+        trace_input={
+            "timeline_event_count": len(merged_timeline),
+        },
+        trace_output=lambda correlations: {
+            "correlation_count": len(correlations),
+            "event_counts": [
+                correlation["event_count"]
+                for correlation in correlations
+            ],
+        },
+    )
 
     # ---------------------------------------------------------------
     # 6. Investigation priorities
@@ -1638,7 +1916,7 @@ def analyze_log(log_text: str):
                             "log_characters": len(log_text or ""),
                             "log_lines": len((log_text or "").splitlines()),
                         },
-                        output=trace_output,
+                        output=mask_sensitive_data(data=trace_output),
                         metadata={
                             "input_characters": len(log_text or ""),
                             "input_lines": len((log_text or "").splitlines()),

@@ -160,3 +160,12 @@ def test_timezone_aware_and_naive_timestamps_do_not_crash():
     timeline = sort_timeline_candidates(candidates)
 
     assert len(timeline) == 2
+
+
+def test_authentication_failed_is_medium_severity():
+    assert (
+        classify_timeline_severity(
+            "2026-10-12 10:15:00 ERROR authentication failed user=alice"
+        )
+        == "MEDIUM"
+    )

@@ -1,20 +1,24 @@
 import json
 from types import SimpleNamespace
+from unittest import result
 
 import pytest
 
 from app.analyzer import (
     _build_investigation_priorities,
+    _has_claimed_compromise_without_telemetry,
+    _has_direct_compromise_evidence,
     analyze_log,
 )
+
 from app.main import (
     analyze_logs,
     build_investigation_priorities,
     export_security_report,
     valid_severity,
 )
-from app.schemas import TimelineEvent
 
+from app.schemas import TimelineEvent
 
 def _valid_llm_payload():
     return {
@@ -286,7 +290,37 @@ def test_analyze_log_returns_serializable_timeline_with_source_line_numbers(
         for event in timeline
     )
     assert "earlier event id=1 src_ip=10.0.0.2" in timeline[0]["evidence"]
-    assert "untimestamped original event user=alice" in timeline[2]["evidence"]
+    assert (
+    "untimestamped original event user=[REDACTED]"
+    in timeline[2]["evidence"]
+    )
+    json.dumps(result)
+
+
+def test_analyze_log_returns_authentication_correlations(monkeypatch):
+    log_text = (
+        "2026-01-01 09:00:00 WARN Authentication failed for user=alice\n"
+        "2026-01-01 09:01:00 WARN Authentication failed for user=alice\n"
+        "2026-01-01 09:02:00 WARN Authentication failed for user=bob"
+    )
+
+    monkeypatch.setattr(
+        "app.analyzer.analyze_logs_with_ai",
+        lambda _: _valid_llm_payload(),
+    )
+
+    result = analyze_log(log_text)
+
+    assert "correlations" in result
+    assert len(result["correlations"]) == 1
+
+    correlation = result["correlations"][0]
+    assert correlation["user"] == "account_1"
+    assert "alice" not in json.dumps(result["correlations"]).lower()
+    assert correlation["event_count"] == 2
+    assert correlation["line_numbers"] == [1, 2]
+
+    # Correlations must remain JSON-serializable.
     json.dumps(result)
 
 
@@ -301,11 +335,36 @@ def test_malformed_timestamp_is_preserved_as_unknown_and_flagged(monkeypatch):
 
     assert result["timeline"][0]["timestamp"] == "Unknown"
     assert result["timeline"][0]["line_number"] == 1
-    assert log_text in result["timeline"][0]["evidence"]
+    assert "2026-99-44 77:88:99 WARN login failed" in result["timeline"][0]["evidence"]
+    assert "user=[REDACTED]" in result["timeline"][0]["evidence"]
     assert any(
         "Malformed timestamp" in note
         for note in result["data_quality_notes"]
     )
+
+def test_malformed_timestamp_qualifies_high_confidence_finding(
+    monkeypatch,
+):
+    log_text = "2026-99-44 77:88:99 WARN login failed user=alice"
+    payload = _valid_llm_payload()
+    payload["confidence"] = "HIGH"
+    payload["findings"][0]["confidence"] = "HIGH"
+    original_evidence = payload["findings"][0]["evidence"]
+    original_severity = payload["findings"][0]["severity"]
+
+    monkeypatch.setattr(
+        "app.analyzer.analyze_logs_with_ai",
+        lambda _: payload,
+    )
+
+    result = analyze_log(log_text)
+
+    finding = result["findings"][0]
+
+    assert result["confidence"] == "MEDIUM"
+    assert "malformed timestamp" in finding["description"].lower()
+    assert finding["severity"] == original_severity
+    assert finding["evidence"] == original_evidence
 
 
 def test_private_ip_external_claim_is_corrected_without_changing_evidence(
@@ -654,6 +713,19 @@ def test_langfuse_mask_always_redacts_secrets_and_configures_identity_masking(
     assert "192.168.1.12" in configurable["log"]
     assert "hunter2" not in configurable["log"]
 
+def test_report_evidence_redacts_usernames_independent_of_settings(
+    monkeypatch,
+):
+    from app.analyzer import _redact_report_evidence
+
+    monkeypatch.setenv("LANGFUSE_REDACT_USERNAMES", "false")
+
+    evidence = _redact_report_evidence(
+        "Authentication failed for user=alice"
+    )
+
+    assert "alice" not in evidence
+    assert "[REDACTED]" in evidence
 
 # ---------------------------------------------------------------------------
 # DETERMINISTIC TIMELINE TESTS
@@ -673,6 +745,24 @@ def test_deterministic_timeline_extracts_timestamps():
     assert len(timeline) == 2
     assert timeline[0].timestamp == "2026-01-01 09:00:00"
     assert timeline[1].timestamp == "2026-01-01 10:00:00"
+
+
+def test_deterministic_timeline_describes_recognized_events():
+    from app.analyzer import _build_deterministic_timeline
+
+    logs = (
+        "2026-01-01 09:00:00 ERROR "
+        "Authentication failed for user=alice"
+    )
+
+    timeline = _build_deterministic_timeline(logs)
+
+    assert len(timeline) == 1
+    assert timeline[0].event != (
+        "Observed log event at the recorded timestamp."
+    )
+    assert "authentication failure" in timeline[0].event.lower()
+    assert "Authentication failed" in timeline[0].evidence
 
 
 def test_deterministic_timeline_sorts_events_chronologically():
@@ -736,6 +826,7 @@ def test_deterministic_timeline_assigns_conservative_severity():
         "2026-01-01 09:00:00 INFO Normal activity\n"
         "2026-01-01 09:01:00 WARN Failed login attempt\n"
         "2026-01-01 09:02:00 ALERT Malware detected\n"
+        "2026-01-01 09:03:00 ERROR Authentication failed for user=alice\n"
     )
 
     timeline = _build_deterministic_timeline(logs)
@@ -743,7 +834,45 @@ def test_deterministic_timeline_assigns_conservative_severity():
     assert timeline[0].severity == "INFO"
     assert timeline[1].severity == "MEDIUM"
     assert timeline[2].severity == "HIGH"
+    assert timeline[3].severity == "MEDIUM"
 
+def test_authentication_correlation_groups_failures_by_user():
+    from app.analyzer import (
+        _build_deterministic_timeline,
+        _correlate_authentication_events,
+    )
+
+    logs = (
+        "2026-01-01 09:00:00 WARN Authentication failed for user=alice\n"
+        "2026-01-01 09:01:00 WARN Authentication failed for user=alice\n"
+        "2026-01-01 09:02:00 WARN Authentication failed for user=bob"
+    )
+
+    timeline = _build_deterministic_timeline(logs)
+    correlations = _correlate_authentication_events(
+    timeline,
+    logs,
+    )
+
+    assert len(correlations) == 1
+    assert correlations[0]["event_count"] == 2
+    assert correlations[0]["line_numbers"] == [1, 2]
+
+def test_authentication_correlation_skips_unknown_users():
+    from app.analyzer import (
+        _build_deterministic_timeline,
+        _correlate_authentication_events,
+    )
+
+    logs = (
+        "2026-01-01 09:00:00 WARN Authentication failed\n"
+        "2026-01-01 09:01:00 WARN Authentication failed"
+    )
+
+    timeline = _build_deterministic_timeline(logs)
+    correlations = _correlate_authentication_events(timeline)
+
+    assert correlations == []
 
 # ---------------------------------------------------------------------------
 # TIMELINE / AI MERGE TESTS
@@ -910,7 +1039,7 @@ def test_timeline_evidence_contains_original_log_line():
 
     timeline = _build_deterministic_timeline(log_line)
 
-    assert log_line in timeline[0].evidence
+    assert "2026-01-01 09:00:00 INFO user=[REDACTED] src_ip=10.0.0.15 login" in timeline[0].evidence
 
 
 # ---------------------------------------------------------------------------
@@ -951,3 +1080,65 @@ def test_system_prompt_treats_mfa_and_unusual_login_as_anomalies():
     assert "not, by itself, evidence that an attack succeeded" in prompt
     assert "Use lower confidence when important context is missing" in prompt
     assert "172.16.0.0/12" in prompt
+
+
+# ---------------------------------------------------------------------------
+# COMPROMISE CLAIM VALIDATION REGRESSION TESTS
+# ---------------------------------------------------------------------------
+
+
+def test_compromise_claim_in_analyst_note_is_not_direct_evidence():
+    log_text = (
+        "Analyst note: account takeover confirmed. "
+        "No supporting authentication or endpoint telemetry attached."
+    )
+
+    assert _has_direct_compromise_evidence(log_text) is False
+
+
+def test_unrelated_successful_login_does_not_validate_compromise_claim():
+    log_text = (
+        "Analyst note: account was compromised.\n"
+        "2026-01-01 09:00:00 INFO login successful "
+        "user=alice source_ip=192.0.2.10"
+    )
+
+    assert _has_claimed_compromise_without_telemetry(log_text) is True
+def test_unsupported_compromise_finding_is_downgraded_consistently():
+    from app.analyzer import _enforce_evidence_safety
+    from app.schemas import SecurityAnalysis, SecurityFinding
+
+    finding = SecurityFinding(
+        title="Confirmed breach detected",
+        severity="CRITICAL",
+        confidence="HIGH",
+        description="This is a confirmed breach.",
+        evidence=["Analyst note: breach confirmed"],
+        attack_pattern="Confirmed breach",
+        recommended_actions=["Block all user accounts immediately"],
+    )
+
+    analysis = SecurityAnalysis(
+        input_classification="UNSTRUCTURED",
+        data_quality_notes=[],
+        executive_summary="A confirmed breach occurred.",
+        overall_risk="CRITICAL",
+        confidence="HIGH",
+        findings=[finding],
+        timeline=[],
+        investigation_priority=[],
+    )
+
+    _enforce_evidence_safety(
+        analysis,
+        "Analyst note: breach confirmed; no supporting telemetry provided.",
+    )
+
+    assert "unverified" in finding.title.lower()
+    assert finding.severity == "MEDIUM"
+    assert finding.confidence == "LOW"
+    assert "not yet verified" in finding.attack_pattern.lower()
+    assert any(
+        "validate the reported claim" in action.lower()
+        for action in finding.recommended_actions
+    )

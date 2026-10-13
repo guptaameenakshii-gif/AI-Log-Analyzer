@@ -1,69 +1,139 @@
 # AI Security Warning Log Analyzer
 
-A Gradio-based AI security log analyzer for reviewing authentication, firewall, API, database, and mixed system logs.
+A Python-based security log triage application that combines LLM-powered analysis with deterministic processing to turn authentication, firewall, API, database, and mixed system logs into structured, evidence-backed security findings.
 
-The application combines LLM-based security interpretation with deterministic Python processing and Pydantic validation. It produces structured security findings, evidence-backed timelines, investigation priorities, severity/confidence assessments, and machine-readable JSON output.
+The application uses a Groq-hosted language model for security interpretation, Python for deterministic processing, Pydantic for schema validation, Gradio for the user interface, and Langfuse for LLM observability.
 
-The project is designed as an investigation-support tool, not an automated incident-response or SIEM platform.
+This project is designed as an investigation-support prototype. It helps analysts organize and prioritize suspicious activity but does not independently confirm a compromise, replace a SIEM, or perform automated incident response.
+
+## Highlights
+
+* **Evidence traceability:** Preserves relevant log context and source line numbers while redacting usernames in report evidence.
+* **Deterministic timelines:** Extracts timestamps and orders events using Python.
+* **Structured security assessment:** Separates severity from confidence and organizes investigation priorities.
+* **Validated model output:** Uses Pydantic to validate the structure and allowed values of AI responses.
+* **Conservative classification:** Avoids treating suspicious activity as a confirmed security incident without sufficient evidence.
+* **IP address classification:** Recognizes private IPv4 ranges and distinguishes them from public addresses.
+* **Report generation:** Presents findings through a Gradio interface and supports structured output.
+* **LLM observability:** Integrates Langfuse to inspect processing stages, latency, token usage, and errors.
+* **Automated tests:** Covers normal processing, malformed inputs, validation failures, and provider-error scenarios.
 
 ## Features
 
-1. Upload .log, .txt, and .csv files or paste log text manually
-2. Detect and preserve timestamped and non-standard log entries
-3. Extract and chronologically order timeline events using deterministic Python logic
-4. Analyze security activity using a Groq-hosted LLM
-5. Validate AI output with Pydantic
-6. Separate severity from confidence
-7. Distinguish suspicious activity from confirmed security incidents
-8. Preserve original log evidence for investigation
-9. Generate structured investigation priorities
-10. Recognize private and public IP address ranges
-11. Handle malformed, empty, and invalid inputs gracefully
-12. Export/report structured results
-13. Provide Langfuse observability for AI requests
-14. Include automated tests for normal and failure scenarios
+1. Upload `.log`, `.txt`, and `.csv` files or paste log text manually.
+2. Process timestamped and non-standard log entries.
+3. Extract and chronologically order timeline events using deterministic Python logic.
+4. Analyze security activity using a Groq-hosted LLM.
+5. Validate AI output with Pydantic.
+6. Assess severity and confidence separately.
+7. Distinguish suspicious activity from confirmed security incidents.
+8. Preserve original log evidence for investigation.
+9. Generate structured investigation priorities.
+10. Classify private and public IP addresses.
+11. Handle empty, malformed, and invalid inputs with controlled responses.
+12. Present structured investigation results and support report output.
+13. Provide Langfuse observability for AI requests.
+14. Include automated tests for normal and failure scenarios.
+
+## Demo
+
+The analyzer accepts security logs and produces structured findings intended to support investigation and triage.
+
+### Example input
+
+```text
+2026-09-21 10:15:03 WARN auth-service Failed login attempt user=admin source_ip=10.10.4.21
+2026-09-21 10:15:05 WARN auth-service Failed login attempt user=admin source_ip=10.10.4.21
+2026-09-21 10:15:07 WARN auth-service Failed login attempt user=admin source_ip=10.10.4.21
+```
+
+This example is illustrative. Repeated authentication failures may warrant investigation, but they do not by themselves prove an account compromise.
+
+### What to investigate
+
+Depending on the supplied logs and the model's analysis, the application can help surface:
+
+* Repeated authentication failures and unusual access patterns
+* Relevant timestamps and supporting log evidence
+* Severity and confidence assessments
+* Chronological event timelines
+* Suggested investigation priorities
+* Structured findings and machine-readable output
+
+The actual findings depend on the input, deterministic processing, and model response.
+
+### Application screenshot
+
+Add a screenshot of the running Gradio application here after capturing one with synthetic log data.
+
+Suggested repository location: `screenshots/demo.png`
+
+Once the screenshot is saved, you can embed it using:
+
+```markdown
+![AI Security Warning Log Analyzer demo](screenshots/demo.png)
+```
 
 ## Architecture
+
 The application follows this processing flow:
 
 ```text
 Log input
-  -> Input preparation and validation
-  -> Groq security analysis
-  -> Pydantic schema validation
-  -> Evidence safety checks
-  -> Deterministic timeline extraction
-  -> AI/Python timeline merge
-  -> Investigation priorities
-  -> Gradio dashboard and report
+   |
+   v
+Input preparation and validation
+   |
+   v
+Groq security analysis
+   |
+   v
+Pydantic schema validation
+   |
+   v
+Evidence safety checks
+   |
+   v
+Deterministic timeline extraction
+   |
+   v
+AI/Python timeline merge
+   |
+   v
+Investigation priorities
+   |
+   v
+Gradio dashboard and report
 ```
 
+### Component responsibilities
 
-Responsibilities are intentionally separated:
+* **LLM:** Interprets security activity and produces structured findings.
+* **Pydantic:** Validates the structure and allowed values of model output.
+* **Python:** Extracts timestamps, preserves evidence, orders timeline events, classifies IP addresses, and handles deterministic processing.
+* **Gradio:** Provides the user interface for submitting logs and reviewing results.
+* **Langfuse:** Provides observability for the AI workflow without determining the security result.
 
-- **LLM:** interprets security activity and produces structured findings.
-- **Pydantic:** validates the structure and allowed values of AI output.
-- **Python:** extracts timestamps, preserves evidence, orders timeline events, validates IP classifications, and handles deterministic processing.
-- **Langfuse:** provides observability only; it does not determine the security result.
-
-This separation makes the system easier to test and reduces dependence on the LLM for deterministic tasks.
+This separation makes the application easier to test and reduces dependence on the language model for tasks that can be performed deterministically.
 
 ## Security Analysis
 
-- Executive summary
-- Overall risk and confidence
-- Structured findings with severity, confidence, evidence, and attack-pattern context
-- Security activity timeline
-- Investigation priorities
-- Raw JSON output
+The application can present the following types of results, depending on the input and analysis:
 
-### Severity and Confidence
+* Executive summary
+* Overall risk and confidence assessments
+* Structured findings with severity, confidence, evidence, and attack-pattern context
+* Security activity timeline
+* Investigation priorities
+* Raw JSON output
+
+### Severity and confidence
 
 The application keeps severity and confidence separate.
 
-Severity represents how serious the potential security issue could be.
+**Severity** represents how serious the potential security issue could be.
 
-Confidence represents how strongly the available evidence supports the conclusion.
+**Confidence** represents how strongly the available evidence supports the conclusion.
 
 For example:
 
@@ -72,115 +142,140 @@ Severity: HIGH
 Confidence: LOW
 ```
 
+This means the potential issue could be serious, but the available evidence is not strong enough to treat the conclusion as confirmed.
 
-means the potential issue could be serious, but the available evidence is not strong enough to treat it as confirmed.
+Failed logins, MFA failures, and unusual authentication activity are not automatically equivalent to confirmed attacks.
 
-The analyzer also avoids automatically treating events such as failed logins, MFA failures, or unusual authentication activity as confirmed attacks.
+### Evidence traceability
 
-### Evidence Traceability
-
-Findings are designed to remain traceable to the original logs.
+Findings are designed to remain traceable to the supplied logs.
 
 Where available, evidence can include:
 
-- Log line number and timestamp
-- Event information
-- Source IP and user/account
-- Original log entry
+* Log line number and timestamp
+* Event information
+* Source IP and user or account
+* Original log entry
 
-The goal is to allow an analyst to quickly verify why a finding was generated instead of relying only on the LLM's explanation.
+The goal is to help analysts verify why a finding was generated instead of relying only on an AI-generated explanation.
 
-Original log evidence is treated as supporting evidence rather than proof of compromise.
+Original log evidence supports investigation but does not, by itself, prove a compromise.
 
-### Deterministic Security Timeline
+### Deterministic security timeline
 
-Timeline generation was deliberately moved away from being completely LLM-dependent.
+Timeline generation is not entirely dependent on the LLM.
 
-Python extracts timestamps from the supplied logs and sorts events chronologically. AI-generated timeline context can then be merged with the deterministic timeline.
+Python extracts timestamps from supplied logs and sorts events chronologically. AI-generated timeline context can then be merged with the deterministic timeline.
 
-This means the timeline does not depend on the model correctly ordering timestamps.
+The implementation is designed to:
 
-- Valid timestamps are normalized where possible.
-- Events are sorted chronologically.
-- Unknown timestamps are preserved instead of discarded.
-- Original log lines remain available as evidence.
-- Timeline counts depend on the supplied input; they are not fixed.
+* Normalize valid timestamps where possible
+* Sort events chronologically
+* Preserve entries with unknown timestamps instead of silently discarding them
+* Keep original log lines available as evidence
+* Derive timeline counts from the supplied input rather than assuming fixed counts
 
-### Investigation Priorities
+### Investigation priorities
 
-Investigation priorities are generated from the structured findings.
+Investigation priorities are generated from structured findings.
 
-When findings exist, the application produces structured priorities that help an analyst decide what should be investigated first.
+When findings exist, the application produces priorities intended to help analysts decide what to investigate first.
 
-When there are genuinely no findings, the application explicitly reports that investigation priorities are not applicable instead of silently returning an empty result.
+When there are no findings, the application explicitly reports that investigation priorities are not applicable instead of silently returning an empty result.
 
-### IP Address Classification
+### IP address classification
 
-The analyzer distinguishes private and public IP addresses.
+The analyzer explicitly handles the private IPv4 ranges defined by RFC 1918:
 
-Private RFC1918 ranges are handled explicitly:
+| Private range               | CIDR             |
+| --------------------------- | ---------------- |
+| 10.0.0.0â€“10.255.255.255     | `10.0.0.0/8`     |
+| 172.16.0.0â€“172.31.255.255   | `172.16.0.0/12`  |
+| 192.168.0.0â€“192.168.255.255 | `192.168.0.0/16` |
 
-- `10.0.0.0/8`
-- `172.16.0.0/12`
-- `192.168.0.0/16`
+For example, `10.10.4.21` is a private IPv4 address and should not automatically be described as an external public IP.
 
-Therefore, an address such as 10.10.4.21 is not automatically described as an external IP.
-
-This helps reduce overconfident or technically incorrect security conclusions.
+This classification helps reduce technically incorrect security conclusions. Private/public classification alone does not establish whether an event is malicious.
 
 ## Technology Stack
 
-Python, Gradio, Pydantic, the OpenAI Python client, Groq's OpenAI-compatible API, Langfuse, `python-dotenv`, pytest, and ReportLab.
+| Technology           | Purpose                                        |
+| -------------------- | ---------------------------------------------- |
+| Python               | Application logic and deterministic processing |
+| Gradio               | User interface                                 |
+| Pydantic             | Structured output validation                   |
+| OpenAI Python client | Client interface for the model provider        |
+| Groq API             | Hosted language-model inference                |
+| Langfuse             | LLM observability                              |
+| `python-dotenv`      | Environment configuration                      |
+| pytest               | Automated testing                              |
+| ReportLab            | PDF generation                                 |
 
 ## Project Structure
+
 ```text
-app/
-  __init__.py
-  analyzer.py
-  llm.py
-  main.py
-  schemas.py
-  timeline.py
-
-examples/
-  auth_300.log
-  mixed_300.log
-  security_300.log
-
-tests/
-  test_analyzer.py
-  test_timeline.py
-
-tools/
-  generate_logs.py
-
-README.md
-requirements.txt
-pytest.ini
+ai_security_warning_log_analyzer/
+â”œâ”€â”€ app/
+â”‚   â”œâ”€â”€ __init__.py
+â”‚   â”œâ”€â”€ analyzer.py
+â”‚   â”œâ”€â”€ llm.py
+â”‚   â”œâ”€â”€ main.py
+â”‚   â”œâ”€â”€ observability.py
+â”‚   â”œâ”€â”€ schemas.py
+â”‚   â””â”€â”€ timeline.py
+â”œâ”€â”€ examples/
+â”‚   â”œâ”€â”€ auth_300.log
+â”‚   â”œâ”€â”€ mixed_300.log
+â”‚   â””â”€â”€ security_300.log
+â”œâ”€â”€ tests/
+â”‚   â”œâ”€â”€ test_analyzer.py
+â”‚   â””â”€â”€ test_timeline.py
+â”œâ”€â”€ tools/
+â”‚   â””â”€â”€ generate_logs.py
+â”œâ”€â”€ README.md
+â”œâ”€â”€ requirements.txt
+â””â”€â”€ pytest.ini
 ```
 
+This structure reflects the files described in the project. Verify it against the actual repository before publishing, especially if files have been added, renamed, or removed.
+
 ## Setup
+
+### Windows PowerShell
+
+These instructions are for a fresh checkout of the project.
 
 Create and activate a virtual environment:
 
 ```powershell
-python -m venv .venv
-
+python -m venv .venv312
 .\.venv312\Scripts\Activate.ps1
 ```
 
-On macOS/Linux:
+Install dependencies:
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+If PowerShell prevents script activation, consult your organization's execution-policy guidance rather than weakening system-wide security settings.
+
+### macOS/Linux
+
+Create and activate a virtual environment:
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 ```
 
 Install dependencies:
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
+
+### Environment configuration
 
 Create a `.env` file in the project root:
 
@@ -190,16 +285,22 @@ GROQ_MODEL=openai/gpt-oss-120b
 LANGFUSE_REDACT_IPS=true
 LANGFUSE_REDACT_USERNAMES=true
 ```
+`GROQ_API_KEY` must contain a valid Groq API key for provider-backed AI analysis. `GROQ_MODEL` is optional and defaults to `openai/gpt-oss-120b` when not set. Langfuse credentials and configuration are handled separately by the observability implementation.
 
-Langfuse masking always redacts credentials, API keys, passwords, and tokens. Set `LANGFUSE_REDACT_IPS` or `LANGFUSE_REDACT_USERNAMES` to `false` to retain those values in trace payloads; both default to `true`.
 
-Start the app:
+Use valid credentials only in your local environment. Do not commit `.env` or publish API keys.
+
+The Langfuse masking settings control configured masking of IP addresses and usernames in observability payloads. Report evidence also redacts usernames independently of these settings. These controls do not guarantee removal of every sensitive value from every field; review the implementation and test redaction before handling production logs.
+
+### Start the application
+
+From the project root, with the virtual environment activated:
 
 ```bash
 python -m app.main
 ```
 
-Open the local Gradio URL shown in the terminal, usually:
+Open the local Gradio URL printed in the terminal. It is commonly:
 
 ```text
 http://127.0.0.1:7860
@@ -211,141 +312,142 @@ http://127.0.0.1:7860
 2. Upload a `.log`, `.txt`, or `.csv` file, or paste log text.
 3. Select **Analyze Logs**.
 4. Review the security overview, executive assessment, timeline, findings, evidence, priorities, and raw JSON.
-5. Select **Clear** to reset the interface.
+5. Review any generated report supported by the interface.
+6. Select **Clear** to reset the interface.
 
-## Example Input
-```text
-2026-09-21 10:15:03 WARN auth-service Failed login attempt user=admin source_ip=10.10.4.21
-2026-09-21 10:15:05 WARN auth-service Failed login attempt user=admin source_ip=10.10.4.21
-2026-09-21 10:15:07 WARN auth-service Failed login attempt user=admin source_ip=10.10.4.21
-```
-
-The analyzer can process authentication and MFA failures, firewall blocks, privilege-escalation signals, API failures, database events, and suspicious access patterns.
+Exact labels and available outputs may vary with the current implementation.
 
 ## Testing and Evaluation
 
-The project includes automated tests covering both normal processing and failure scenarios.
+The project includes automated tests for normal processing, data-quality issues, AI-provider failures, schema validation, evidence handling, and security guardrails.
 
-Run the full suite:
+Run the full test suite from the project root:
 
 ```bash
-pytest -q
+python -m pytest -q
 ```
 
-Latest verified result: **66 passed**.
+**Latest recorded result: 80 passed in 9.15 seconds.**
 
-### Evaluation Results
+This result was observed on October 12, 2026. Rerun the full test suite after changing application code or dependencies before publishing an updated result.
 
-| Test case | Expected result | Status |
-|---|---|---|
-| Structured, messy, and unstructured input | Preserve classification and handle evidence conservatively | Pass |
-| Empty input/upload and invalid upload | Return a controlled response | Pass |
-| Malformed timestamp | Preserve evidence and flag data quality | Pass |
-| Groq unavailable, invalid JSON, or missing fields | Return a controlled provider/schema error | Pass |
-| Invalid severity or confidence | Reject unsupported values | Pass |
-| Empty findings | Mark priorities as not applicable | Pass |
-| Timeline ordering and unknown timestamps | Sort deterministically and preserve events | Pass |
-| Evidence traceability and PDF evidence column | Preserve original log evidence | Pass |
-| Private/public IP classification | Correctly handle RFC1918 ranges | Pass |
-| Langfuse success/error traces | Record request stages and failures | Verified |
+### Evaluation coverage
 
-The provider-response tests use controlled mocked responses. They demonstrate validation and error-handling behavior but do not claim to measure live LLM classification accuracy.
+| Test area                                     | Verified behavior or test objective                                                                             |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Structured, mixed, and unstructured input     | Exercise classification and conservative evidence handling                                                      |
+| Empty input or invalid upload                 | Check controlled error handling                                                                                 |
+| Malformed timestamps                          | Preserve evidence and flag timestamp uncertainty                                                                |
+| Provider unavailable or invalid response      | Exercise provider-error handling and response validation                                                        |
+| Missing fields or invalid severity/confidence | Reject invalid structured AI output                                                                             |
+| Empty findings                                | Handle investigation priorities when no findings exist                                                          |
+| Timeline ordering and unknown timestamps      | Test deterministic ordering and timestamp handling                                                              |
+| Evidence traceability and PDF evidence column | Check preservation of original log evidence in supported outputs                                                |
+| Private/public IP classification              | Test handling of RFC 1918 address ranges                                                                        |
+| Langfuse success/error traces                 | Exercise observability for workflow stages and failures                                                         |
+| Prompt-injection text in supplied logs        | Test that embedded instructions are treated as untrusted input                                                  |
+| Unsupported compromise claims                 | Test that narrative claims are not automatically treated as confirmed incidents                                 |
+| Unrelated successful login events             | Test that unrelated telemetry does not automatically validate a compromise claim                                |
+| Finding-level compromise guardrail            | Test downgrading unsupported claims across title, severity, confidence, attack pattern, and recommended actions |
 
-The test suite currently reports seven identical Langfuse SDK deprecation warnings from asyncio.iscoroutinefunction; these warnings do not cause test failures.
+Provider-response tests use controlled mocked responses. They demonstrate validation and error-handling behavior; they do not measure live LLM classification accuracy.
+
+Prompt-injection tests verify specific guardrail behavior. They do not establish immunity to every prompt-injection technique. Likewise, compromise-detection tests cover the implemented scenarios and do not prove that every finding is correctly calibrated.
+
+The test suite has previously emitted Langfuse SDK deprecation warnings related to `asyncio.iscoroutinefunction`. Such warnings are not the same as test failures. Confirm the current output before documenting the number or status of warnings.
+
+
+### Evaluation coverage
+
+| Test area                                     | Intended behavior                                                |
+| --------------------------------------------- | ---------------------------------------------------------------- |
+| Structured, messy, and unstructured input     | Preserve classification and handle evidence conservatively       |
+| Empty input or invalid upload                 | Return a controlled response                                     |
+| Malformed timestamps                          | Preserve evidence and handle data-quality issues                 |
+| Provider unavailable or invalid response      | Handle provider and schema errors without an unhandled exception |
+| Missing fields or invalid severity/confidence | Reject unsupported structured output                             |
+| Empty findings                                | Mark priorities as not applicable                                |
+| Timeline ordering and unknown timestamps      | Sort deterministically and preserve events                       |
+| Evidence traceability and PDF evidence column | Preserve original log evidence in supported outputs              |
+| Private/public IP classification              | Correctly handle RFC 1918 ranges                                 |
+| Langfuse success/error traces                 | Record workflow stages and failures                              |
+
+Provider-response tests use controlled mocked responses. They demonstrate validation and error-handling behavior; they do not measure live LLM classification accuracy.
+
+The test suite has previously emitted Langfuse SDK deprecation warnings related to `asyncio.iscoroutinefunction`. Such warnings are not the same as test failures. Confirm the current output before documenting the number or status of warnings.
 
 ## Langfuse Observability
 
-Langfuse is used to observe the AI analysis workflow rather than to perform the security analysis.
+Langfuse is used to observe the AI analysis workflow rather than perform security classification.
 
-A single analyzer request is represented as one root trace with nested observations:
+A typical analyzer request is represented as a root trace with nested observations:
 
-```text
 security-log-analysis
-├── prepare-input
-├── ai-security-log-analysis
-├── evidence-safety
-├── build-deterministic-timeline
-├── merge-ai-timeline
-└── investigation-priorities
-```
+|-- prepare-input
+|-- ai-security-log-analysis
+|-- evidence-safety
+|-- build-deterministic-timeline
+|-- merge-ai-timeline
+|-- investigation-priorities
 
+The workflow can help inspect:
 
-This structure makes it possible to inspect where time is spent and whether individual processing stages succeed or fail.
+* Request latency
+* Model/provider and token usage, where reported
+* Observation status and analysis metadata
+* Validation and provider errors
+* Per-stage processing behavior
 
-- Request latency
-- Model/provider and token usage
-- Observation status and analysis metadata
-- Validation and provider errors
+The AI generation can be the main contributor to request latency. Actual timings depend on the provider, model, network, input size, and response length.
 
-The LLM generation records the system and user messages after client-side masking, then the full validated structured response. JSON/schema failures are recorded at `ERROR` level with the raw model text as generation output (also passed through the mask). Child spans include compact inputs/outputs; the root output contains the final merged result and typed data-quality issue records.
+### Verification notes
 
-### Live Trace Verification
+A synthetic analysis request was previously verified in Langfuse on October 7, 2026. The recorded observations were:
 
-A live synthetic analysis request was verified in Langfuse on 2026-10-07.
+Langfuse provides observability for AI-assisted security log analysis, including tracing analysis stages and recording relevant execution metadata. Provider errors can also be recorded for troubleshooting. Trace details and metadata should be reviewed for sensitive information before being shared.
 
-| Measurement | Observed value |
-|---|---|
-| Trace duration | 6.61 seconds |
-| Total tokens | 5,915 |
-| Input | 7 lines, 440 characters |
-| Timeline events / findings | 7 / 5 |
-| Risk / confidence | MEDIUM / MEDIUM |
-| Classification | MIXED |
-| Provider / model | Groq / `openai/gpt-oss-120b` |
+These are observations from one synthetic request, not benchmark results or expected values for every run.
 
+A separate synthetic error scenario was also previously verified where the AI provider was deliberately unavailable. The trace recorded an error without an unhandled application exception.
 
-The trace contained the expected nested workflow:
+Before publishing, verify that the trace evidence is safe to share and remains accessible to intended readers. If access is private or the trace contains any potentially sensitive payloads, remove direct trace URLs from the public README and retain only a sanitized summary.
 
-```text
-security-log-analysis
-├── prepare-input
-├── ai-security-log-analysis      6.60s / 5,915 tokens
-├── evidence-safety
-├── build-deterministic-timeline
-├── merge-ai-timeline
-└── investigation-priorities
-```
-
-
-The AI generation is the main latency contributor, while the deterministic timeline, merge, evidence-safety, and priority-processing steps complete in milliseconds.
-
-A separate synthetic error trace was also verified where the AI provider was deliberately unavailable. The trace recorded the error without producing an unhandled application exception.
-
-The latest full-payload masking check used a synthetic two-line log. The [trace is available here](https://cloud.langfuse.com/project/cmugsjzhe005nad0f201mnvh3/traces/36c41ca859704177ca079a8adcf646e3): the root contains the final result and two typed data-quality issues; its generation has system/user messages, one finding, two timeline entries, model `openai/gpt-oss-120b`, 4,820 tokens, and 3.946 seconds latency. Fake usernames, IPs, tokens, and passwords were absent from the stored messages. The provider did not return cost details for this request.
-
-- Latency and token usage
-- Model/provider information
-- Validation and provider failures
-- Per-stage processing behavior
-
-Langfuse is not part of the security decision-making logic.
+Langfuse provides observability; it does not independently validate the factual correctness of a security finding.
 
 ## Sensitive Log Data
 
-Security logs can contain sensitive information including usernames, IP addresses, hostnames, authentication information, tokens, and internal infrastructure details.
+Security logs can contain sensitive information, including usernames, IP addresses, hostnames, authentication information, tokens, and internal infrastructure details.
 
-The current application sends supplied log content to Groq for AI analysis. Production logs should therefore only be submitted when the organization's security and data-processing requirements allow it.
+The application sends supplied log content to Groq for AI analysis. Only submit logs when the applicable security, privacy, and data-processing requirements allow it.
 
-- Redact or pseudonymize usernames, hostnames, tokens, credentials, and other sensitive identifiers.
-- Keep any re-identification mapping in a separately protected system.
-- Sanitize untrusted log content and enforce file-size and input-type limits.
-- Store API keys in a secret manager or protected environment; never commit `.env` files or expose secrets in logs.
-- Add authentication and authorization before exposing Gradio beyond a trusted local environment.
-- Use HTTPS/TLS for externally exposed services.
-- Restrict Langfuse access and retention; avoid storing raw logs in observability systems unless required.
+Recommended safeguards include:
 
-The current project does not claim to implement enterprise-grade redaction, access control, or managed secrets. These are production deployment requirements.
+* Redact or pseudonymize usernames, hostnames, tokens, credentials, and other sensitive identifiers.
+* Keep any re-identification mapping in a separately protected system.
+* Validate input types and enforce appropriate file-size and content limits.
+* Store API keys in a secret manager or protected environment.
+* Never commit `.env` files or expose secrets in logs.
+* Add authentication and authorization before exposing Gradio beyond a trusted local environment.
+* Use HTTPS/TLS for externally exposed services.
+* Restrict Langfuse access and retention.
+* Avoid storing raw logs in observability systems unless required and approved.
+
+The current project is a prototype and does not claim to provide enterprise-grade redaction, access control, or managed secrets. These controls should be assessed before production deployment.
 
 ## Error Handling
 
-- Input is empty or an uploaded file is invalid
-- Logs contain malformed fields
-- The Groq API is unavailable
-- The AI returns invalid JSON or omits required fields
-- Severity or confidence contains an invalid value
-- Findings are empty
+The application includes tests for scenarios such as:
 
-Instead of exposing an unhandled Python exception to the user, the application returns a controlled error or explicit no-result state.
+* Empty input or invalid uploads
+* Malformed log fields
+* An unavailable Groq API
+* Invalid JSON or missing required fields in AI output
+* Unsupported severity or confidence values
+* Empty findings
+
+The intended behavior is to return controlled errors or explicit no-result states rather than expose unhandled Python exceptions to the user.
+
+Test coverage demonstrates the behavior of the tested cases, not the absence of every possible failure.
 
 ## Generated Test Logs
 
@@ -357,31 +459,50 @@ examples/auth_300.log
 examples/mixed_300.log
 ```
 
-They can be regenerated using:
+The datasets can be regenerated with:
 
 ```bash
 python tools/generate_logs.py
 ```
 
+Confirm that any generated files are synthetic and safe to publish before committing them.
+
 ## Limitations
 
-This project is a security-analysis support tool rather than a complete SOC platform.
+This project is a security-analysis support tool rather than a complete Security Operations Center (SOC) platform.
 
-- LLM interpretation can be incorrect; human review is required for security decisions.
-- The application does not automatically remediate or change systems.
-- Suspicious activity is not automatically treated as a confirmed incident.
-- Pydantic validation guarantees structure, not factual correctness.
-- Preserved evidence supports analyst verification but does not prove compromise by itself.
-- Production deployments need additional controls for sensitive logs and credentials.
-- Mocked provider tests do not claim deterministic live-model accuracy.
+* LLM interpretation can be incorrect; human review is required for security decisions.
+* The application does not automatically remediate or change systems.
+* Suspicious activity is not automatically equivalent to a confirmed incident.
+* Pydantic validation guarantees structure and allowed values, not factual correctness.
+* Preserved evidence supports analyst verification but does not prove compromise by itself.
+* Private/public IP classification does not determine whether activity is malicious.
+* Production deployments need additional controls for sensitive logs, access, credentials, and data retention.
+* Mocked provider tests do not establish deterministic live-model accuracy.
+* Results depend on the supplied logs, model behavior, provider availability, and configuration.
 
 ## Design Principles
 
-| Principle | Application |
-|---|---|
-| Evidence over assumptions | Findings should be supported by the supplied logs. |
-| Determinism where possible | Python handles timestamps, ordering, IP classification, and schema validation. |
-| Conservative classification | Distinguish suspicious activity, possible attacks, strong evidence, and confirmed incidents. |
-| Severity is not confidence | A serious potential issue can still have weak supporting evidence. |
-| Human in the loop | The tool supports triage but does not replace analyst judgment. |
-| Observability without decision-making | Langfuse does not influence security classification. |
+| Principle                             | Application                                                                        |
+| ------------------------------------- | ---------------------------------------------------------------------------------- |
+| Evidence over assumptions             | Findings should be supported by the supplied logs.                                 |
+| Determinism where possible            | Python handles timestamps, ordering, IP classification, and structured validation. |
+| Conservative classification           | Distinguish suspicious activity from confirmed incidents.                          |
+| Severity is not confidence            | A potentially serious issue can still have weak supporting evidence.               |
+| Human in the loop                     | The tool supports triage but does not replace analyst judgment.                    |
+| Observability without decision-making | Langfuse monitors the workflow rather than determining the security result.        |
+
+## Future Improvements
+
+Potential next steps include:
+
+* Add a verified screenshot and a sanitized end-to-end example.
+* Expand test coverage for additional log formats and edge cases.
+* Improve configuration validation and user-facing diagnostics.
+* Document the exact masking guarantees and test them across all observability payloads.
+* Add authentication, authorization, and deployment hardening before any shared or production deployment.
+* Evaluate live-model output quality using a documented, reproducible dataset and human-reviewed criteria.
+
+## License
+
+Add a license section if you intend to distribute the project publicly. Choose a license that matches how you want others to use, modify, and redistribute the code.

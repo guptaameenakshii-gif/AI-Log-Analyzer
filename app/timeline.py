@@ -31,6 +31,7 @@ def classify_timeline_severity(log_line: str) -> str:
     medium_indicators = (
         "failed login",
         "authentication failure",
+        "authentication failed",
         "login denied",
         "permission denied",
         "account temporarily locked",
