@@ -495,6 +495,8 @@ def _describe_timeline_event(log_line: str) -> str:
     Unrecognized entries receive a neutral fallback.
     """
     text = log_line.casefold()
+    if re.match(r"^\s*analyst note\s*:", log_line, re.IGNORECASE):
+        return "Analyst assertion; not independently verified."
 
     patterns = (
         (

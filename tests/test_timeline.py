@@ -3,6 +3,7 @@ from app.timeline import (
     extract_timeline_candidates,
     sort_timeline_candidates,
 )
+from app.analyzer import _describe_timeline_event
 
 
 def test_extract_timestamp():
@@ -169,3 +170,26 @@ def test_authentication_failed_is_medium_severity():
         )
         == "MEDIUM"
     )
+
+def test_analyst_note_with_critical_claim_is_info_severity():
+    assert (
+        classify_timeline_severity(
+            "Analyst note: account takeover confirmed"
+        )
+        == "INFO"
+    )
+
+
+def test_analyst_note_severity_prefix_is_case_insensitive():
+    assert (
+        classify_timeline_severity(
+            "  ANALYST NOTE: ransomware detected"
+        )
+        == "INFO"
+    )
+
+
+def test_analyst_note_is_described_as_unverified():
+    assert _describe_timeline_event(
+        "Analyst note: attacker gained administrator access"
+    ) == "Analyst assertion; not independently verified."

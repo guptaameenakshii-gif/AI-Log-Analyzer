@@ -18,6 +18,8 @@ def classify_timeline_severity(log_line: str) -> str:
     """
 
     text = log_line.lower()
+    if re.match(r"^\s*analyst note\s*:", log_line, re.IGNORECASE):
+        return "INFO"
 
     high_indicators = (
         "malware detected",
