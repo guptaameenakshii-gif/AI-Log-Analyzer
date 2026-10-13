@@ -495,7 +495,7 @@ def _describe_timeline_event(log_line: str) -> str:
     Unrecognized entries receive a neutral fallback.
     """
     text = log_line.casefold()
-    if re.match(r"^\s*analyst note\s*:", log_line, re.IGNORECASE):
+    if re.search(r"\banalyst note\s*:", log_line, re.IGNORECASE):
         return "Analyst assertion; not independently verified."
 
     patterns = (
@@ -706,14 +706,14 @@ def _merge_ai_timeline_with_deterministic_timeline(
     ai_timeline,
     deterministic_timeline,
 ):
-    """
-    Merge AI interpretation into the deterministic timeline.
+    """Merge AI interpretation into the deterministic timeline.
 
     Python remains authoritative for timestamps, ordering,
-    original evidence, and source line numbers.
-    AI may provide event descriptions and severity.
-    Events are matched only when timestamps are unambiguous.
+    original evidence, source line numbers, and analyst-note labels.
+    AI may provide descriptions and severity for other uniquely
+    matched events.
     """
+
     if not deterministic_timeline:
         return ai_timeline or []
 
@@ -763,22 +763,45 @@ def _merge_ai_timeline_with_deterministic_timeline(
             ai_event, "severity", None
         )
 
+        deterministic_event = _get_ai_timeline_value(
+            event, "event", ""
+        )
+        deterministic_evidence = _get_ai_timeline_value(
+            event, "evidence", ""
+        )
+        is_analyst_note = bool(
+            re.search(
+                r"\banalyst note\s*:",
+                str(deterministic_evidence),
+                re.IGNORECASE,
+            )
+        )
+
+        deterministic_severity = _normalize_severity(
+            _get_ai_timeline_value(event, "severity", "INFO"),
+            fallback="INFO",
+        )
+
         merged.append(
             TimelineEvent(
                 timestamp=timestamp,
                 event=(
-                    ai_description
-                    or _get_ai_timeline_value(event, "event", "")
+                    deterministic_event
+                    if is_analyst_note
+                    else (
+                        ai_description
+                        or deterministic_event
+                    )
                 ),
-                severity=_normalize_severity(
-                    ai_severity,
-                    fallback=_get_ai_timeline_value(
-                        event, "severity", "INFO"
-                    ),
+                severity=(
+                    deterministic_severity
+                    if is_analyst_note
+                    else _normalize_severity(
+                        ai_severity,
+                        fallback=deterministic_severity,
+                    )
                 ),
-                evidence=_get_ai_timeline_value(
-                    event, "evidence", ""
-                ),
+                evidence=deterministic_evidence,
                 line_number=_get_ai_timeline_value(
                     event, "line_number", None
                 ),

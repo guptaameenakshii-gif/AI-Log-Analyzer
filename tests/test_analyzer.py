@@ -1252,3 +1252,36 @@ def test_prompt_distinguishes_detection_execution_and_compromise():
     assert "a malware detection does not alone prove execution" in prompt
     assert "a successful login is not alone proof of unauthorized access" in prompt
     assert "if evidence supports an attempt but not its outcome" in prompt
+
+def test_timeline_merge_preserves_unverified_analyst_note():
+    from app.analyzer import (
+    _build_deterministic_timeline,
+    _merge_ai_timeline_with_deterministic_timeline,
+    )
+
+    log_line = (
+        "2026-01-01 09:00:00 WARN "
+        "Analyst note: attacker gained administrator access"
+    )
+    deterministic = _build_deterministic_timeline(log_line)
+
+    ai_timeline = [
+        {
+            "timestamp": "2026-01-01 09:00:00",
+            "event": "Confirmed administrator compromise",
+            "severity": "CRITICAL",
+        }
+    ]
+
+    merged = _merge_ai_timeline_with_deterministic_timeline(
+        ai_timeline,
+        deterministic,
+    )
+
+    assert len(merged) == 1
+    assert merged[0].event == (
+        "Analyst assertion; not independently verified."
+    )
+    assert merged[0].severity == deterministic[0].severity
+    assert "Analyst note:" in merged[0].evidence
+    assert merged[0].timestamp == "2026-01-01 09:00:00"
