@@ -1545,7 +1545,6 @@ def _enforce_evidence_safety(
     # contains direct evidence supporting that conclusion.
 
     if not _has_direct_compromise_evidence(log_text):
-
         analysis_text = _analysis_text(analysis)
 
         if _contains_unsupported_compromise_confirmation(
@@ -1558,34 +1557,26 @@ def _enforce_evidence_safety(
                 "downgraded to an unconfirmed interpretation.",
             )
 
-            summary = str(
-                _analysis_field(
-                    analysis,
-                    "executive_summary",
-                    "",
-                )
-            ).strip()
-
-            summary = (
-                "The supplied evidence does not independently "
-                "confirm compromise. The observed activity or "
-                "reported claim requires further validation."
-            )
-
             _set_analysis_field(
                 analysis,
                 "executive_summary",
-                summary,
+                (
+                    "The supplied evidence does not independently "
+                    "confirm compromise. The observed activity or "
+                    "reported claim requires further validation."
+                ),
             )
 
-            for finding in (
+            findings = (
                 _analysis_field(
                     analysis,
                     "findings",
                     [],
                 )
                 or []
-            ):
+            )
+
+            for finding in findings:
                 description = str(
                     _analysis_field(
                         finding,
@@ -1597,6 +1588,7 @@ def _enforce_evidence_safety(
                 _downgrade_unsupported_compromise_finding(
                     finding
                 )
+
                 if _contains_unsupported_compromise_confirmation(
                     description
                 ):
@@ -1610,6 +1602,42 @@ def _enforce_evidence_safety(
                             "compromise occurred."
                         ),
                     )
+
+            # Recalculate overall risk from the updated findings.
+            severity_rank = {
+                "INFO": 0,
+                "LOW": 1,
+                "MEDIUM": 2,
+                "HIGH": 3,
+                "CRITICAL": 4,
+            }
+
+            valid_severities = [
+                str(
+                    _analysis_field(
+                        finding,
+                        "severity",
+                        "",
+                    )
+                ).upper()
+                for finding in findings
+            ]
+            valid_severities = [
+                severity
+                for severity in valid_severities
+                if severity in severity_rank
+            ]
+
+            if valid_severities:
+                overall_risk = max(
+                    valid_severities,
+                    key=severity_rank.get,
+                )
+                _set_analysis_field(
+                    analysis,
+                    "overall_risk",
+                    overall_risk,
+                )
 
     return _correct_private_ip_labels(analysis, log_text)
 

@@ -1104,6 +1104,8 @@ def test_unrelated_successful_login_does_not_validate_compromise_claim():
     )
 
     assert _has_claimed_compromise_without_telemetry(log_text) is True
+
+
 def test_unsupported_compromise_finding_is_downgraded_consistently():
     from app.analyzer import _enforce_evidence_safety
     from app.schemas import SecurityAnalysis, SecurityFinding
@@ -1142,3 +1144,53 @@ def test_unsupported_compromise_finding_is_downgraded_consistently():
         "validate the reported claim" in action.lower()
         for action in finding.recommended_actions
     )
+    assert "does not independently" in analysis.executive_summary.lower()
+    assert analysis.overall_risk != "CRITICAL"
+
+
+def test_supported_critical_finding_preserves_overall_risk():
+    from app.analyzer import _enforce_evidence_safety
+    from app.schemas import SecurityAnalysis, SecurityFinding
+
+    unsupported_finding = SecurityFinding(
+        title="Confirmed breach detected",
+        severity="CRITICAL",
+        confidence="HIGH",
+        description="This is a confirmed breach.",
+        evidence=["Analyst note: breach confirmed"],
+        attack_pattern="Confirmed breach",
+        recommended_actions=["Validate the reported claim"],
+    )
+
+    supported_finding = SecurityFinding(
+        title="Malware execution detected",
+        severity="CRITICAL",
+        confidence="HIGH",
+        description="Endpoint telemetry records malware execution.",
+        evidence=["EDR alert: malicious.exe execution blocked"],
+        attack_pattern="Malware execution",
+        recommended_actions=["Isolate the affected endpoint"],
+    )
+
+    analysis = SecurityAnalysis(
+        input_classification="UNSTRUCTURED",
+        data_quality_notes=[],
+        executive_summary="A confirmed breach occurred.",
+        overall_risk="CRITICAL",
+        confidence="HIGH",
+        findings=[unsupported_finding, supported_finding],
+        timeline=[],
+        investigation_priority=[],
+    )
+
+    _enforce_evidence_safety(
+        analysis,
+        (
+            "Analyst note: breach claimed; no supporting telemetry "
+            "provided. EDR alert: malicious.exe execution blocked."
+        ),
+    )
+
+    assert unsupported_finding.severity == "MEDIUM"
+    assert supported_finding.severity == "CRITICAL"
+    assert analysis.overall_risk == "CRITICAL"
