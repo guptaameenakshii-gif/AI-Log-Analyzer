@@ -22,12 +22,32 @@ MIN_MEANINGFUL_CHARACTERS = 10
 
 def _redact_report_evidence(text: str) -> str:
     """Redact usernames in report evidence regardless of observability settings."""
-    return re.sub(
+    evidence = str(text or "")
+    evidence = re.sub(
         r"(\buser\s*[=:]\s*['\"]?)[a-zA-Z0-9_.@-]+",
         r"\1[REDACTED]",
-        str(text or ""),
+        evidence,
         flags=re.IGNORECASE,
     )
+    evidence = re.sub(
+        r"(\bFailed password for\s+)(?:(?:invalid|illegal)\s+user\s+)?[a-zA-Z0-9_.@-]+",
+        r"\1[REDACTED]",
+        evidence,
+        flags=re.IGNORECASE,
+    )
+    evidence = re.sub(
+        r"(\b(?:invalid|illegal)\s+user\s+)[a-zA-Z0-9_.@-]+",
+        r"\1[REDACTED]",
+        evidence,
+        flags=re.IGNORECASE,
+    )
+    evidence = re.sub(
+        r"(\buser\s+)(?!\[REDACTED\])['\"]?[a-zA-Z0-9_.@-]+",
+        r"\1[REDACTED]",
+        evidence,
+        flags=re.IGNORECASE,
+    )
+    return evidence
 
 def _trace_step(
     name,
@@ -497,6 +517,23 @@ def _describe_timeline_event(log_line: str) -> str:
     text = log_line.casefold()
     if re.search(r"\banalyst note\s*:", log_line, re.IGNORECASE):
         return "Analyst assertion; not independently verified."
+
+    ssh_failed_password = re.search(
+        r"\bsshd(?:\[\d+\])?:.*?\bFailed password for "
+        r"(?:(?:invalid|illegal) user )?(?P<user>\S+)"
+        r"(?: from (?P<ip>[0-9a-fA-F:.]+))?"
+        r"(?: port (?P<port>\d+))?",
+        log_line,
+        re.IGNORECASE,
+    )
+    if ssh_failed_password:
+        details = []
+        if ssh_failed_password.group("ip"):
+            details.append(f"from {ssh_failed_password.group('ip')}")
+        if ssh_failed_password.group("port"):
+            details.append(f"port {ssh_failed_password.group('port')}")
+        suffix = f" {' '.join(details)}" if details else ""
+        return f"SSH authentication failure for user{suffix}."
 
     patterns = (
         (
@@ -1023,6 +1060,9 @@ def _contains_unsupported_compromise_confirmation(text):
         "this confirms the breach",
         "this indicates compromise",
         "this indicates a compromise",
+        "attacker gained administrator access",
+        "attacker gained admin access",
+        "attacker obtained administrator access",
     )
 
     return any(
@@ -1124,7 +1164,10 @@ def _has_claimed_compromise_without_telemetry(
         "breach confirmed",
         "unauthorized access confirmed",
         "malware execution confirmed",
-    )
+        "attacker gained administrator access",
+        "attacker gained admin access",
+        "attacker obtained administrator access",
+            )
 
     telemetry_markers = (
         "login successful",
@@ -1278,6 +1321,13 @@ def _downgrade_unsupported_compromise_finding(finding):
         "unauthorized access confirmed",
         "malware execution confirmed",
         "confirmed account compromise",
+        "attacker gained administrator access",
+        "attacker gained admin access",
+        "attacker obtained administrator access",
+        "confirmed administrator compromise",
+        "confirmed admin compromise",
+        "administrator access confirmed",
+        "administrator compromise confirmed",
     )
 
     fields_to_check = (
@@ -1363,6 +1413,42 @@ def _downgrade_unsupported_compromise_finding(finding):
             finding,
             "recommended_actions",
             list(dict.fromkeys(safer_actions)),
+        )
+
+    evidence = _analysis_field(finding, "evidence", [])
+
+    if isinstance(evidence, list):
+        labeled_evidence = []
+
+        for item in evidence:
+            text = str(item).strip()
+
+            if not text:
+                continue
+
+            is_narrative_claim = (
+                "analyst note:" in text.lower()
+                or _contains_unsupported_compromise_confirmation(text)
+            )
+
+            if (
+                is_narrative_claim
+                and not text.lower().startswith(
+                    "unverified assertion (not independent telemetry):"
+                )
+            ):
+                text = (
+                    "Unverified assertion "
+                    "(not independent telemetry): "
+                    + text
+                )
+
+            labeled_evidence.append(text)
+
+        _set_analysis_field(
+            finding,
+            "evidence",
+            labeled_evidence,
         )
 
 def _enforce_evidence_safety(
