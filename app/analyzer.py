@@ -660,6 +660,24 @@ def _label_unverified_evidence(evidence) -> list[str]:
     return labeled
 
 
+def _label_timeline_evidence(evidence: str, is_analyst_note: bool) -> str:
+    """Label analyst commentary while retaining its original text."""
+    text = str(evidence or "").strip()
+
+    if not is_analyst_note or not text:
+        return text
+
+    prefix = "Unverified analyst commentary (original retained):"
+    if prefix in text:
+        return text
+
+    match = re.match(r"^(Line \d+:\s*)(.*)$", text, re.IGNORECASE)
+    if match:
+        return f"{match.group(1)}{prefix} {match.group(2)}"
+
+    return f"{prefix} {text}"
+
+
 def _correlate_authentication_events(timeline, original_log_text=None):
     """
     Group repeated authentication failures by user internally.
@@ -883,7 +901,10 @@ def _merge_ai_timeline_with_deterministic_timeline(
                         fallback=deterministic_severity,
                     )
                 ),
-                evidence=deterministic_evidence,
+                evidence=_label_timeline_evidence(
+                    deterministic_evidence,
+                    is_analyst_note,
+                ),
                 line_number=_get_ai_timeline_value(
                     event, "line_number", None
                 ),
