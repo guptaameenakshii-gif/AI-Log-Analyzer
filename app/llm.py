@@ -1063,6 +1063,7 @@ def _request_ai_analysis(
             return client.chat.completions.create(
                 model=GROQ_MODEL,
                 messages=messages,
+                max_completion_tokens=8192,
                 response_format={
                     "type": "json_object",
                 },

@@ -515,7 +515,7 @@ def _describe_timeline_event(log_line: str) -> str:
     Unrecognized entries receive a neutral fallback.
     """
     text = log_line.casefold()
-    if re.search(r"\banalyst note\s*:", log_line, re.IGNORECASE):
+    if _is_unverified_narrative(log_line):
         return "Analyst assertion; not independently verified."
 
     ssh_failed_password = re.search(
@@ -611,6 +611,53 @@ def _describe_timeline_event(log_line: str) -> str:
             return description
 
     return "Observed log entry; no recognized event pattern."
+
+
+ANALYST_COMMENTARY_RE = re.compile(
+    r"\banalyst\s+(?:note|claim|commentary|assessment)\s*:",
+    re.IGNORECASE,
+)
+
+PROMPT_INJECTION_RE = re.compile(
+    r"\bignore all previous instructions\b"
+    r"|\bignore previous instructions\b"
+    r"|\bset confidence to high\b"
+    r"|\breport that the attacker\b",
+    re.IGNORECASE,
+)
+
+
+def _is_unverified_narrative(text: str) -> bool:
+    """Identify analyst commentary or instruction-like text as narrative."""
+    text = str(text or "")
+    return bool(
+        ANALYST_COMMENTARY_RE.search(text)
+        or PROMPT_INJECTION_RE.search(text)
+    )
+
+
+def _label_unverified_evidence(evidence) -> list[str]:
+    """Label narrative claims without changing genuine telemetry evidence."""
+    if not isinstance(evidence, list):
+        return evidence
+
+    labeled = []
+    prefix = "Unverified assertion (not independent telemetry):"
+
+    for item in evidence:
+        text = str(item or "").strip()
+        if not text:
+            continue
+
+        if (
+            _is_unverified_narrative(text)
+            and not text.lower().startswith(prefix.lower())
+        ):
+            text = f"{prefix} {text}"
+
+        labeled.append(text)
+
+    return labeled
 
 
 def _correlate_authentication_events(timeline, original_log_text=None):
@@ -806,12 +853,10 @@ def _merge_ai_timeline_with_deterministic_timeline(
         deterministic_evidence = _get_ai_timeline_value(
             event, "evidence", ""
         )
-        is_analyst_note = bool(
-            re.search(
-                r"\banalyst note\s*:",
-                str(deterministic_evidence),
-                re.IGNORECASE,
-            )
+
+        is_analyst_note = (
+            _is_unverified_narrative(str(deterministic_evidence))
+            or _is_unverified_narrative(str(deterministic_event))
         )
 
         deterministic_severity = _normalize_severity(
@@ -1789,6 +1834,19 @@ def _enforce_evidence_safety(
                     "overall_risk",
                     overall_risk,
                 )
+
+    # Label narrative evidence on every finding, not only findings
+    # that triggered the unsupported-compromise downgrade.
+    for finding in (
+        _analysis_field(analysis, "findings", []) or []
+    ):
+        evidence = _analysis_field(finding, "evidence", [])
+        if isinstance(evidence, list):
+            _set_analysis_field(
+                finding,
+                "evidence",
+                _label_unverified_evidence(evidence),
+            )
 
     return _correct_private_ip_labels(analysis, log_text)
 
