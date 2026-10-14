@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import gradio as gr
 
+from .observability import mask_sensitive_data
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
@@ -908,7 +909,7 @@ def build_timeline(timeline) -> str:
 
 
                     <div class="timeline-log">
-                        {safe(evidence)}
+                        {safe(mask_sensitive_data(data=str(evidence or "")))}
                     </div>
 
                 </div>

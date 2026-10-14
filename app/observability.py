@@ -8,10 +8,10 @@ from langfuse import Langfuse
 
 _REDACTED = "[REDACTED]"
 _SECRET_ASSIGNMENT = re.compile(
-    r"(?i)\b(password|passwd|pwd|secret(?:_key)?|api[_-]?key|"
-    r"access[_-]?token|refresh[_-]?token|id[_-]?token|token|"
-    r"authorization|credential|client_secret)\b"
-    r"(\s*[:=]\s*)(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)"
+    r"""(?i)\b(password|passwd|pwd|secret(?:_key)?|api[_-]?key|"""
+    r"""access[_-]?token|refresh[_-]?token|id[_-]?token|token|"""
+    r"""authorization|credential|client_secret)\b"""
+    r"""(\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)"""
 )
 _BEARER_TOKEN = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+")
 _JWT = re.compile(
