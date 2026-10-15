@@ -680,52 +680,89 @@ def _label_timeline_evidence(evidence: str, is_analyst_note: bool) -> str:
 
 def _correlate_authentication_events(timeline, original_log_text=None):
     """
-    Group repeated authentication failures by user internally.
-    Return pseudonymous account labels, never original usernames.
+    Group repeated authentication failures by account and source IP.
+    Return pseudonymous labels, never original usernames or source IPs.
     """
     import re
     from collections import defaultdict
 
     failures_by_user = defaultdict(list)
+    failures_by_source_ip = defaultdict(list)
+
+    if original_log_text is None:
+        return []
+
+    lines = original_log_text.splitlines()
 
     for event in timeline:
-        evidence = str(getattr(event, "evidence", "") or "")
-
-        if not re.search(
-            r"authentication\s+failed|failed\s+login|"
-            r"login\s+failed|authentication\s+failure",
-            evidence,
-            re.IGNORECASE,
-        ):
-            continue
-
         line_number = getattr(event, "line_number", None)
-        if line_number is None or original_log_text is None:
+        if line_number is None:
             continue
 
-        lines = original_log_text.splitlines()
         if line_number < 1 or line_number > len(lines):
             continue
 
         original_line = lines[line_number - 1]
-        match = re.search(
+        evidence = str(getattr(event, "evidence", "") or "")
+
+        is_failed_login = bool(
+            re.search(
+                r"authentication\s+failed|failed\s+login|"
+                r"login\s+failed|authentication\s+failure",
+                evidence,
+                re.IGNORECASE,
+            )
+            or re.search(
+                r"\baction\s*=\s*['\"]?login\b.*?"
+                r"\bstatus\s*=\s*['\"]?failed\b",
+                original_line,
+                re.IGNORECASE,
+            )
+        )
+
+        if not is_failed_login:
+            continue
+
+        user_match = re.search(
             r"\buser\s*[=:]\s*['\"]?([a-zA-Z0-9_.@-]+)",
             original_line,
             re.IGNORECASE,
         )
-        if not match:
-            continue
+        if user_match:
+            failures_by_user[user_match.group(1)].append(event)
 
-        user = match.group(1)
-        failures_by_user[user].append(event)
+        ip_match = re.search(
+            r"\bsource_ip\s*[=:]\s*['\"]?"
+            r"((?:\d{1,3}\.){3}\d{1,3})\b",
+            original_line,
+            re.IGNORECASE,
+        )
+        if ip_match:
+            failures_by_source_ip[ip_match.group(1)].append(event)
 
     correlations = []
+
     for events in failures_by_user.values():
         if len(events) < 2:
             continue
 
         correlations.append({
             "user": f"account_{len(correlations) + 1}",
+            "event_count": len(events),
+            "line_numbers": sorted(
+                event.line_number
+                for event in events
+                if event.line_number is not None
+            ),
+        })
+
+    for events in failures_by_source_ip.values():
+        if len(events) < 2:
+            continue
+
+        correlations.append({
+            "type": "source_ip",
+            "source": f"source_{sum(1 for item in correlations if item.get('type') == 'source_ip') + 1}",
             "event_count": len(events),
             "line_numbers": sorted(
                 event.line_number

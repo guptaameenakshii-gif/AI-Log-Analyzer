@@ -1528,3 +1528,59 @@ def test_timeline_evidence_label_is_idempotent():
         in twice
     )
     assert original in twice
+
+def test_authentication_correlation_groups_failures_by_source_ip():
+    from app.analyzer import (
+        _build_deterministic_timeline,
+        _correlate_authentication_events,
+    )
+
+    logs = (
+        "2026-01-01 09:00:00 WARN user=alice action=login "
+        "status=failed source_ip=203.0.113.201\n"
+        "2026-01-01 09:01:00 WARN user=bob action=login "
+        "status=failed source_ip=203.0.113.201\n"
+        "2026-01-01 09:02:00 WARN user=carol action=login "
+        "status=failed source_ip=203.0.113.201"
+    )
+
+    timeline = _build_deterministic_timeline(logs)
+    correlations = _correlate_authentication_events(timeline, logs)
+
+    source_ip_correlations = [
+        item for item in correlations
+        if item.get("type") == "source_ip"
+    ]
+
+    assert len(source_ip_correlations) == 1
+    assert source_ip_correlations[0]["event_count"] == 3
+    assert source_ip_correlations[0]["line_numbers"] == [1, 2, 3]
+
+    serialized = json.dumps(correlations)
+    assert "203.0.113.201" not in serialized
+    assert "alice" not in serialized
+    assert "bob" not in serialized
+    assert "carol" not in serialized
+
+def test_authentication_correlation_does_not_group_redacted_users():
+    from app.analyzer import (
+        _build_deterministic_timeline,
+        _correlate_authentication_events,
+    )
+
+    logs = (
+        "2026-01-01 09:00:00 WARN user=[REDACTED] "
+        "action=login status=failed\n"
+        "2026-01-01 09:01:00 WARN user=[REDACTED] "
+        "action=login status=failed"
+    )
+
+    timeline = _build_deterministic_timeline(logs)
+    correlations = _correlate_authentication_events(timeline, logs)
+
+    account_correlations = [
+        item for item in correlations
+        if "user" in item
+    ]
+
+    assert account_correlations == []
