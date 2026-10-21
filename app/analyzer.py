@@ -575,6 +575,34 @@ def _describe_timeline_event(log_line: str) -> str:
         ),
         (
             (
+                "file access denied",
+                "file-access denied",
+                "denied file access",
+                "access to file denied",
+                "permission denied for file",
+            ),
+            "Log records a denied file-access event.",
+        ),
+        (
+            (
+                "suspicious process execution",
+                "suspicious process",
+                "unexpected process execution",
+                "process execution flagged",
+            ),
+            "Log records potentially suspicious process activity.",
+        ),
+        (
+            (
+                "unusual outbound network connection",
+                "unusual network connection",
+                "suspicious network connection",
+                "unexpected outbound connection",
+            ),
+            "Log records a potentially unusual network connection.",
+        ),
+        (
+            (
                 "permission denied",
                 "access denied",
                 "forbidden",

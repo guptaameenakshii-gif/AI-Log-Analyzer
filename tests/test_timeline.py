@@ -247,3 +247,29 @@ def test_timeline_label_does_not_modify_original_log():
 
     assert original_log == saved_original
     assert len(timeline) == 2
+
+
+def test_denied_file_access_has_specific_timeline_description():
+    assert _describe_timeline_event(
+        "2026-10-13 10:00:00 ERROR file access denied path=/etc/shadow"
+    ) == "Log records a denied file-access event."
+
+
+def test_suspicious_process_execution_is_described_neutrally():
+    assert _describe_timeline_event(
+        "2026-10-13 10:01:00 WARN suspicious process execution: "
+        "powershell.exe spawned by unknown process"
+    ) == "Log records potentially suspicious process activity."
+
+
+def test_unusual_network_connection_is_described_neutrally():
+    assert _describe_timeline_event(
+        "2026-10-13 10:02:00 WARN unusual outbound network connection "
+        "destination=203.0.113.20 port=4444"
+    ) == "Log records a potentially unusual network connection."
+
+
+def test_failed_login_description_remains_supported():
+    assert _describe_timeline_event(
+        "2026-10-13 10:03:00 ERROR Failed login for user=admin"
+    ) == "Log records an authentication failure."
